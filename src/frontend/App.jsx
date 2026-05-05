@@ -97,9 +97,10 @@ const NODE_TYPE_COLORS = {
   'component': '#9C27B0',
 };
 
-function MemoryGraph({ nodes, edges }) {
+function MemoryGraph({ nodes, edges, retrievalPath }) {
   const svgRef = useRef(null);
   const simulationRef = useRef(null);
+  const pathGroupRef = useRef(null);
 
   useEffect(() => {
     if (!svgRef.current || nodes.length === 0) return;
@@ -111,6 +112,20 @@ function MemoryGraph({ nodes, edges }) {
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
     svg.attr('width', width).attr('height', height);
+
+    const defs = svg.append('defs');
+
+    defs.append('marker')
+      .attr('id', 'arrowhead-path')
+      .attr('viewBox', '0 0 10 7')
+      .attr('refX', 10)
+      .attr('refY', 3.5)
+      .attr('markerWidth', 8)
+      .attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('polygon')
+      .attr('points', '0 0, 10 3.5, 0 7')
+      .attr('fill', '#e94560');
 
     const g = svg.append('g');
 
@@ -172,6 +187,9 @@ function MemoryGraph({ nodes, edges }) {
       .attr('font-size', '10px')
       .attr('font-family', 'sans-serif');
 
+    const pathGroup = g.append('g').attr('class', 'retrieval-path-group');
+    pathGroupRef.current = { g: pathGroup, nodes, simulation };
+
     simulation.on('tick', () => {
       link
         .attr('x1', d => d.source.x)
@@ -180,12 +198,83 @@ function MemoryGraph({ nodes, edges }) {
         .attr('y2', d => d.target.y);
 
       nodeGroup.attr('transform', d => `translate(${d.x},${d.y})`);
+
+      updatePathEdges();
     });
 
     return () => {
       simulation.stop();
     };
   }, [nodes, edges]);
+
+  useEffect(() => {
+    updatePathEdges();
+  }, [retrievalPath]);
+
+  function updatePathEdges() {
+    if (!pathGroupRef.current) return;
+    const { g, nodes, simulation } = pathGroupRef.current;
+    if (!g || nodes.length === 0) return;
+
+    g.selectAll('*').remove();
+
+    if (!retrievalPath || retrievalPath.length < 2) return;
+
+    const nodeMap = {};
+    nodes.forEach(n => { nodeMap[n.id] = n; });
+
+    const pathEdges = [];
+    for (let i = 0; i < retrievalPath.length - 1; i++) {
+      const sourceId = retrievalPath[i];
+      const targetId = retrievalPath[i + 1];
+      const sourceNode = nodeMap[sourceId];
+      const targetNode = nodeMap[targetId];
+      if (sourceNode && targetNode) {
+        pathEdges.push({
+          source: sourceNode,
+          target: targetNode,
+          index: i,
+        });
+      }
+    }
+
+    const pathLines = g.selectAll('g')
+      .data(pathEdges)
+      .join('g')
+      .attr('class', 'path-edge-group');
+
+    pathLines.append('line')
+      .attr('class', 'path-edge')
+      .attr('x1', d => d.source.x)
+      .attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x)
+      .attr('y2', d => d.target.y)
+      .attr('stroke', '#e94560')
+      .attr('stroke-width', 2)
+      .attr('stroke-dasharray', '8,4')
+      .attr('marker-end', 'url(#arrowhead-path)')
+      .attr('opacity', 0.8);
+
+    pathLines.append('circle')
+      .attr('class', 'path-dot')
+      .attr('r', 3)
+      .attr('fill', '#ff6b8a')
+      .attr('opacity', 0.9);
+
+    function animatePathDots() {
+      pathLines.selectAll('.path-dot')
+        .attr('cx', function(d) {
+          const t = (Date.now() / 1500 + d.index * 0.3) % 1;
+          return d.source.x + (d.target.x - d.source.x) * t;
+        })
+        .attr('cy', function(d) {
+          const t = (Date.now() / 1500 + d.index * 0.3) % 1;
+          return d.source.y + (d.target.y - d.source.y) * t;
+        });
+    }
+
+    d3.timer(animatePathDots);
+  }
 
   return (
     <svg ref={svgRef} className="memory-graph-svg"></svg>
@@ -455,6 +544,7 @@ function App() {
   const [totalFiles, setTotalFiles] = useState(0);
   const [stopFlag, setStopFlag] = useState('');
   const [isSecondPass, setIsSecondPass] = useState(false);
+  const [retrievalPath, setRetrievalPath] = useState([]);
 
   const [showConfig, setShowConfig] = useState(false);
   const [manualPath, setManualPath] = useState('d:\\总体\\工作\\在校工作经历\\VisionWork2\\workspace\\VisionWork2');
@@ -578,6 +668,10 @@ function App() {
               setCurrentTask('分析完成');
               setIsSecondPass(false);
             });
+          } else if (message.type === 'memory_path_update') {
+            flushSync(() => {
+              setRetrievalPath(message.nodeIds || []);
+            });
           } else if (message.type === 'stopped') {
             flushSync(() => {
               setIsAnalyzing(false);
@@ -691,6 +785,7 @@ function App() {
       setGraphEdges([]);
       setCanvasNodes([]);
       setCanvasEdges([]);
+      setRetrievalPath([]);
       setCurrentTask('正在初始化...');
       setCompletedFiles(0);
       setTotalFiles(0);
@@ -728,6 +823,7 @@ function App() {
       setGraphEdges([]);
       setCanvasNodes([]);
       setCanvasEdges([]);
+      setRetrievalPath([]);
       ws.send(JSON.stringify({
         type: 'simulate_analysis',
         path: currentPath
@@ -918,9 +1014,19 @@ function App() {
                 {graphNodes.length > 0
                   ? `${graphNodes.length} 个节点${analysisComplete ? ' · 分析完成' : ''}`
                   : '等待分析开始...'}
+                {retrievalPath.length > 0 && (
+                  <span className="path-indicator" title="检索路径">
+                    {' · '}🔗 {retrievalPath.length} 步检索
+                    <button
+                      className="btn-clear-path"
+                      onClick={() => setRetrievalPath([])}
+                      title="清除检索路径"
+                    >✕</button>
+                  </span>
+                )}
               </span>
             </div>
-            <MemoryGraph nodes={graphNodes} edges={graphEdges} />
+            <MemoryGraph nodes={graphNodes} edges={graphEdges} retrievalPath={retrievalPath} />
           </div>
         </aside>
       </div>
