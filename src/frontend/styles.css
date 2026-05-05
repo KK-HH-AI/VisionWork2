@@ -284,6 +284,26 @@ body {
   pointer-events: none;
 }
 
+.canvas-area {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(135deg, #1a1a2e 0%, #0f0c29 100%);
+  border-right: 1px solid rgba(15, 52, 96, 0.3);
+  overflow: hidden;
+}
+
+.memory-panel {
+  width: 340px;
+  min-width: 280px;
+  max-width: 400px;
+  background: linear-gradient(180deg, #16213e 0%, #1a1a3e 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .graph-container {
   width: 100%;
   height: 100%;
@@ -551,4 +571,84 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+.rf-container {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+}
+
+.rf-container .react-flow {
+  background: linear-gradient(135deg, #1a1a2e 0%, #0f0c29 100%);
+}
+
+.rf-custom-node {
+  background: rgba(26, 26, 46, 0.95);
+  border: 2px solid #4B8BBE;
+  border-radius: 8px;
+  min-width: 150px;
+  max-width: 220px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+}
+
+.rf-custom-node:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+}
+
+.rf-node-header {
+  padding: 4px 10px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.rf-node-body {
+  padding: 8px 12px;
+}
+
+.rf-node-label {
+  font-size: 0.82rem;
+  color: #e0e0e0;
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.rf-controls {
+  background: rgba(26, 26, 46, 0.9) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+}
+
+.rf-controls button {
+  background: rgba(26, 26, 46, 0.9) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+  fill: #c0c0c0 !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+
+.rf-controls button:hover {
+  background: rgba(233, 69, 96, 0.2) !important;
+}
+
+.rf-controls button:last-child {
+  border-bottom: none !important;
+}
+
+.react-flow__edge-textbg {
+  fill: rgba(26, 26, 46, 0.85) !important;
+}
+
+.react-flow__edge-text {
+  fill: #aaa !important;
+}
+
+.react-flow__attribution {
+  display: none !important;
 }

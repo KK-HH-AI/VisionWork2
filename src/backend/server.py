@@ -311,6 +311,40 @@ ANALYSIS_PROMPT = """你是一位{profession}。请分析以下代码文件，�
 指出代码中值得关注的设计模式、潜在问题或改进建议。
 """
 
+SECOND_PASS_PROMPT = """你是一位{profession}。请基于以下代码项目的分析笔记，生成一个分析图指令序列。
+
+## 项目笔记摘要
+{notes_summary}
+
+## 要求
+请生成一个JSON数组，每个元素是一个画布指令。严格按照以下格式输出，只输出JSON数组，不要包含任何其他文字、解释或markdown标记。
+
+支持的指令类型：
+
+1. add_node: 添加节点
+   {{"cmd": "add_node", "id": "唯一ID(英文)", "label": "节点标签(中文)", "type": "节点类型", "group": "分组", "description": "简要描述"}}
+   type可选值: module, function, class, data, config, interface, service, component
+   group可选值: python, javascript, react, typescript, java, cpp, c, web, config, doc, data, image, other
+
+2. add_edge: 添加连线
+   {{"cmd": "add_edge", "source": "源节点ID", "target": "目标节点ID", "label": "关系描述(中文)"}}
+
+3. layout: 自动布局
+   {{"cmd": "layout", "algorithm": "dagre"}}
+
+请根据你的职业视角({profession})，生成有意义的分析图：
+- 后端开发工程师：生成模块调用关系图，展示各模块之间的依赖和调用关系
+- 前端开发工程师：生成组件树和状态流转图
+- 产品经理：生成功能结构图，展示功能模块的层次关系
+- 架构师：生成系统架构图，展示系统分层和组件关系
+- 数据分析师：生成数据流图，展示数据处理流程
+
+注意：
+- 节点数量控制在10-25个之间，选择最重要的模块/组件
+- 边要体现模块间的真实关系（调用、依赖、数据流等）
+- 最后一条指令必须是 layout
+- 只输出JSON数组，不要包含```json```等标记"""
+
 
 IGNORE_DIRS = {
     'node_modules', '.git', '__pycache__', 'dist', 'dist-electron',
@@ -524,10 +558,174 @@ def first_pass_reader_node(state: AnalysisState) -> AnalysisState:
                     "completedFiles": state["current_index"],
                     "totalFiles": state["total_files"],
                 })
+                progress_queue.put_nowait({
+                    "type": "first_pass_complete",
+                    "total_files": state["total_files"],
+                    "memory_dir": state["memory_dir"],
+                })
             progress_queue.put_nowait({
                 "type": "memory_graph",
                 "nodes": list(state["graph_nodes"]),
                 "edges": list(state["graph_edges"]),
+            })
+        except Exception:
+            pass
+
+    return state
+
+
+def _extract_json_objects(buffer):
+    commands = []
+    while True:
+        start = buffer.find('{')
+        if start == -1:
+            break
+
+        depth = 0
+        in_string = False
+        escape = False
+        end = -1
+
+        for i in range(start, len(buffer)):
+            c = buffer[i]
+            if escape:
+                escape = False
+                continue
+            if c == '\\':
+                escape = True
+                continue
+            if c == '"':
+                in_string = not in_string
+                continue
+            if not in_string:
+                if c == '{':
+                    depth += 1
+                elif c == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+
+        if end == -1:
+            break
+
+        json_str = buffer[start:end + 1]
+        try:
+            cmd = json.loads(json_str)
+            commands.append(cmd)
+        except json.JSONDecodeError:
+            pass
+
+        buffer = buffer[end + 1:]
+
+    return commands, buffer
+
+
+def second_pass_reader_node(state: AnalysisState) -> AnalysisState:
+    processed = state["processed"]
+    progress_queue = state.get("progress_queue")
+    stop_flag = state.get("stop_flag")
+
+    if stop_flag and should_stop.get(stop_flag, False):
+        if progress_queue is not None:
+            try:
+                progress_queue.put_nowait({
+                    "type": "second_pass_complete",
+                })
+            except Exception:
+                pass
+        return state
+
+    if progress_queue is not None:
+        try:
+            progress_queue.put_nowait({
+                "type": "progress",
+                "currentTask": "第二层阅读：正在生成分析图...",
+                "completedFiles": state["total_files"],
+                "totalFiles": state["total_files"],
+            })
+        except Exception:
+            pass
+
+    notes_summary_parts = []
+    for entry in processed:
+        note_path = entry.get("note_path", "")
+        if note_path and os.path.exists(note_path):
+            try:
+                with open(note_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                summary = content[:800] if len(content) > 800 else content
+                notes_summary_parts.append(f"### {entry['filename']}\n{summary}")
+            except Exception:
+                notes_summary_parts.append(f"### {entry['filename']}\n(无法读取笔记)")
+
+    notes_summary = "\n\n".join(notes_summary_parts)
+    if len(notes_summary) > 8000:
+        notes_summary = notes_summary[:8000] + "\n\n...(笔记已截断)"
+
+    prompt = SECOND_PASS_PROMPT.format(
+        profession=state["profession"],
+        notes_summary=notes_summary,
+    )
+
+    try:
+        llm = ChatOpenAI(
+            base_url=state["api_url"],
+            api_key=state["api_key"],
+            model=state["model_name"],
+            temperature=0.5,
+            max_tokens=4000,
+            streaming=True,
+        )
+
+        buffer = ""
+        for chunk in llm.stream(prompt):
+            if stop_flag and should_stop.get(stop_flag, False):
+                break
+
+            token = chunk.content if hasattr(chunk, 'content') else str(chunk)
+            if not token:
+                continue
+
+            buffer += token
+            commands, buffer = _extract_json_objects(buffer)
+
+            for cmd in commands:
+                if progress_queue is not None:
+                    try:
+                        progress_queue.put_nowait({
+                            "type": "canvas_command",
+                            "command": cmd,
+                        })
+                    except Exception:
+                        pass
+
+        if buffer.strip():
+            commands, _ = _extract_json_objects(buffer)
+            for cmd in commands:
+                if progress_queue is not None:
+                    try:
+                        progress_queue.put_nowait({
+                            "type": "canvas_command",
+                            "command": cmd,
+                        })
+                    except Exception:
+                        pass
+
+    except Exception as e:
+        if progress_queue is not None:
+            try:
+                progress_queue.put_nowait({
+                    "type": "error",
+                    "message": f"第二层阅读失败: {str(e)}"
+                })
+            except Exception:
+                pass
+
+    if progress_queue is not None:
+        try:
+            progress_queue.put_nowait({
+                "type": "second_pass_complete",
             })
         except Exception:
             pass
@@ -543,8 +741,8 @@ def should_continue(state: AnalysisState) -> str:
         print(f"[Continue] STOPPING due to stop_flag")
         return "end"
     if state["current_index"] >= len(state["file_queue"]):
-        print(f"[Continue] END - all files processed")
-        return "end"
+        print(f"[Continue] SECOND_PASS - all files processed, moving to second pass")
+        return "second_pass"
     print(f"[Continue] CONTINUE to next file")
     return "continue"
 
@@ -554,6 +752,7 @@ def build_analysis_graph():
 
     workflow.add_node("index_files", index_files_node)
     workflow.add_node("first_pass_reader", first_pass_reader_node)
+    workflow.add_node("second_pass_reader", second_pass_reader_node)
 
     workflow.set_entry_point("index_files")
     workflow.add_edge("index_files", "first_pass_reader")
@@ -562,9 +761,11 @@ def build_analysis_graph():
         should_continue,
         {
             "continue": "first_pass_reader",
+            "second_pass": "second_pass_reader",
             "end": END,
         }
     )
+    workflow.add_edge("second_pass_reader", END)
 
     return workflow.compile()
 
@@ -602,12 +803,6 @@ async def run_llm_analysis(websocket, folder_path, profession, api_url, api_key,
                     "completed_files": result.get("current_index", 0),
                     "total_files": result.get("total_files", 0),
                 })
-            else:
-                progress_queue.put({
-                    "type": "first_pass_complete",
-                    "total_files": result.get("total_files", 0),
-                    "memory_dir": result.get("memory_dir", ""),
-                })
         except Exception as e:
             progress_queue.put({"type": "error", "message": str(e)})
 
@@ -620,11 +815,16 @@ async def run_llm_analysis(websocket, folder_path, profession, api_url, api_key,
                 msg = progress_queue.get_nowait()
             except queue.Empty:
                 if not graph_thread.is_alive():
-                    break
+                    try:
+                        msg = progress_queue.get_nowait()
+                    except queue.Empty:
+                        break
                 await asyncio.sleep(0.05)
                 continue
 
-            if msg.get("type") == "first_pass_complete":
+            msg_type = msg.get("type")
+
+            if msg_type == "first_pass_complete":
                 try:
                     await websocket.send_json({
                         "type": "first_pass_complete",
@@ -633,8 +833,15 @@ async def run_llm_analysis(websocket, folder_path, profession, api_url, api_key,
                     })
                 except RuntimeError:
                     pass
+            elif msg_type == "second_pass_complete":
+                try:
+                    await websocket.send_json({
+                        "type": "analysis_complete",
+                    })
+                except RuntimeError:
+                    pass
                 break
-            elif msg.get("type") == "stopped":
+            elif msg_type == "stopped":
                 try:
                     await websocket.send_json({
                         "type": "stopped",
@@ -644,7 +851,7 @@ async def run_llm_analysis(websocket, folder_path, profession, api_url, api_key,
                 except RuntimeError:
                     pass
                 break
-            elif msg.get("type") == "error":
+            elif msg_type == "error":
                 try:
                     await websocket.send_json({
                         "type": "error",
