@@ -15,6 +15,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
+import Editor from '@monaco-editor/react';
 
 const FILE_ICONS = {
   'js': '📜', 'jsx': '⚛️', 'ts': '📘', 'tsx': '⚛️',
@@ -29,6 +30,21 @@ const FILE_ICONS = {
 function getFileIcon(filename) {
   const ext = filename.split('.').pop().toLowerCase();
   return FILE_ICONS[ext] || FILE_ICONS['default'];
+}
+
+function getMonacoLanguage(filename) {
+  const ext = filename.split('.').pop().toLowerCase();
+  const langMap = {
+    'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
+    'py': 'python', 'java': 'java', 'cpp': 'cpp', 'c': 'c', 'h': 'c',
+    'html': 'html', 'css': 'css', 'scss': 'scss', 'less': 'less',
+    'json': 'json', 'xml': 'xml', 'yaml': 'yaml', 'yml': 'yaml',
+    'md': 'markdown', 'sql': 'sql', 'sh': 'shell', 'bat': 'shell',
+    'go': 'go', 'rs': 'rust', 'swift': 'swift', 'kt': 'kotlin',
+    'php': 'php', 'lua': 'lua', 'r': 'r', 'rb': 'ruby',
+    'vue': 'html', 'svelte': 'html', 'graphql': 'graphql',
+  };
+  return langMap[ext] || 'plaintext';
 }
 
 function DirectoryTree({ node, depth = 0 }) {
@@ -335,7 +351,7 @@ function CustomNode({ data }) {
 
 const nodeTypes = { customNode: CustomNode };
 
-function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSecondPass }) {
+function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSecondPass, onNodeDoubleClick }) {
   const commandQueueRef = useRef([]);
   const processingRef = useRef(false);
   const reactFlowInstanceRef = useRef(null);
@@ -367,6 +383,7 @@ function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSecondPass }) {
             nodeType: command.type || 'module',
             group: command.group || 'other',
             description: command.description || '',
+            codeRef: command.codeRef || null,
           },
           style: {
             opacity: 0,
@@ -472,6 +489,11 @@ function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSecondPass }) {
         edges={edges}
         onNodesChange={onNodesChangeHandler}
         onEdgesChange={onEdgesChangeHandler}
+        onNodeDoubleClick={(event, node) => {
+          if (onNodeDoubleClick) {
+            onNodeDoubleClick(node);
+          }
+        }}
         onConnect={(connection) => {
           setEdges((eds) => addEdge({
             ...connection,
@@ -557,6 +579,16 @@ function App() {
   const [canvasNodes, setCanvasNodes] = useNodesState([]);
   const [canvasEdges, setCanvasEdges] = useEdgesState([]);
 
+  const [codeViewNode, setCodeViewNode] = useState(null);
+  const [codeFileList, setCodeFileList] = useState([]);
+  const [selectedCodeFile, setSelectedCodeFile] = useState(null);
+  const [fileContent, setFileContent] = useState('');
+  const [fileContentLoading, setFileContentLoading] = useState(false);
+  const [fileContentError, setFileContentError] = useState('');
+  const [highlightLines, setHighlightLines] = useState(null);
+
+  const backendPortRef = useRef(8765);
+
   const setCanvasNodesWrapped = useCallback((updater) => {
     if (typeof updater === 'function') {
       setCanvasNodes(updater);
@@ -612,6 +644,8 @@ function App() {
           port = 8765;
           token = 'dev-token';
         }
+
+        backendPortRef.current = port;
 
         const wsUrl = `ws://127.0.0.1:${port}/ws?token=${token}`;
         const websocket = new WebSocket(wsUrl);
@@ -831,6 +865,87 @@ function App() {
     }
   }, [ws, connected, currentPath]);
 
+  const handleNodeDoubleClick = useCallback((node) => {
+    const codeRef = node.data?.codeRef;
+    if (!codeRef || !Array.isArray(codeRef) || codeRef.length === 0) {
+      setError('该节点没有关联的代码文件');
+      setTimeout(() => setError(''), 3000);
+      return;
+    }
+
+    const seen = new Set();
+    const files = [];
+    codeRef.forEach(ref => {
+      if (ref.file && !seen.has(ref.file)) {
+        seen.add(ref.file);
+        files.push({
+          file: ref.file,
+          lines: ref.lines || null,
+        });
+      }
+    });
+
+    setCodeViewNode(node);
+    setCodeFileList(files);
+    setSelectedCodeFile(null);
+    setFileContent('');
+    setFileContentError('');
+    setHighlightLines(null);
+  }, []);
+
+  const loadFileContent = useCallback(async (fileRef) => {
+    setFileContentLoading(true);
+    setFileContentError('');
+    setSelectedCodeFile(fileRef);
+    setHighlightLines(fileRef.lines);
+
+    try {
+      if (window.electronAPI && window.electronAPI.readFile) {
+        const result = await window.electronAPI.readFile(fileRef.file);
+        if (result.success) {
+          setFileContent(result.content);
+        } else {
+          setFileContentError(result.error);
+          setFileContent('');
+        }
+      } else {
+        const port = backendPortRef.current;
+        const response = await fetch(`http://127.0.0.1:${port}/read-file?path=${encodeURIComponent(fileRef.file)}`);
+        if (response.ok) {
+          const data = await response.json();
+          setFileContent(data.content);
+        } else {
+          setFileContentError('无法读取文件（非Electron环境）');
+          setFileContent('');
+        }
+      }
+    } catch (err) {
+      setFileContentError(`读取文件失败: ${err.message}`);
+      setFileContent('');
+    } finally {
+      setFileContentLoading(false);
+    }
+  }, []);
+
+  const handleFileClick = useCallback((fileRef) => {
+    loadFileContent(fileRef);
+  }, [loadFileContent]);
+
+  const handleBackToTree = useCallback(() => {
+    setCodeViewNode(null);
+    setCodeFileList([]);
+    setSelectedCodeFile(null);
+    setFileContent('');
+    setFileContentError('');
+    setHighlightLines(null);
+  }, []);
+
+  useEffect(() => {
+    if (codeViewNode && codeFileList.length > 0) {
+      loadFileContent(codeFileList[0]);
+    }
+  }, [codeViewNode, codeFileList, loadFileContent]);
+
   return (
     <div className="app-container">
       <header className="header">
@@ -916,7 +1031,7 @@ function App() {
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
           >
-            {!directoryTree && (
+            {!directoryTree && !codeViewNode && (
               <div className="drop-placeholder">
                 <div className="drop-icon">📂</div>
                 <p className="drop-title">拖入项目文件夹</p>
@@ -925,10 +1040,99 @@ function App() {
             )}
           </div>
 
-          {directoryTree && (
-            <div className="tree-container">
-              <DirectoryTree node={directoryTree} />
+          {codeViewNode ? (
+            <div className="code-view-panel">
+              <div className="code-view-header">
+                <button className="btn-back-tree" onClick={handleBackToTree}>
+                  <span>← 返回目录树</span>
+                </button>
+                <span className="code-view-title" title={codeViewNode.data?.label}>
+                  📍 {codeViewNode.data?.label}
+                </span>
+              </div>
+              <div className="code-file-list">
+                <div className="code-file-list-title">
+                  相关文件 ({codeFileList.length})
+                </div>
+                {codeFileList.map((fileRef, idx) => (
+                  <div
+                    key={idx}
+                    className={`code-file-item ${selectedCodeFile === fileRef ? 'active' : ''}`}
+                    onClick={() => handleFileClick(fileRef)}
+                  >
+                    <span className="code-file-icon">{getFileIcon(fileRef.file.split(/[/\\]/).pop())}</span>
+                    <span className="code-file-name" title={fileRef.file}>
+                      {fileRef.file.split(/[/\\]/).pop()}
+                    </span>
+                    {fileRef.lines && (
+                      <span className="code-file-lines">L{fileRef.lines[0]}-L{fileRef.lines[1]}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="code-editor-container">
+                {fileContentLoading ? (
+                  <div className="code-editor-loading">加载中...</div>
+                ) : fileContentError ? (
+                  <div className="code-editor-error">{fileContentError}</div>
+                ) : fileContent ? (
+                  <Editor
+                    key={selectedCodeFile ? selectedCodeFile.file : 'empty'}
+                    height="100%"
+                    language={selectedCodeFile ? getMonacoLanguage(selectedCodeFile.file) : 'plaintext'}
+                    value={fileContent}
+                    theme="vs-dark"
+                    options={{
+                      readOnly: true,
+                      minimap: { enabled: false },
+                      fontSize: 12,
+                      lineNumbers: 'on',
+                      scrollBeyondLastLine: false,
+                      wordWrap: 'on',
+                      automaticLayout: true,
+                    }}
+                    onMount={(editor, monaco) => {
+                      if (highlightLines && highlightLines.length === 2) {
+                        const [startLine, endLine] = highlightLines;
+                        editor.revealLineInCenter(startLine);
+                        editor.setSelection(
+                          new monaco.Selection(startLine, 1, endLine, 1)
+                        );
+                        const range = new monaco.Range(startLine, 1, endLine, Number.MAX_SAFE_INTEGER);
+                        editor.changeViewZones((accessor) => {
+                          accessor.addZone({
+                            afterLineNumber: endLine,
+                            heightInLines: 0,
+                            domNode: null,
+                          });
+                        });
+                        const decoration = {
+                          range,
+                          options: {
+                            isWholeLine: true,
+                            className: 'highlighted-line',
+                            glyphMarginClassName: 'highlighted-line-glyph',
+                          },
+                        };
+                        editor.deltaDecorations([], [decoration]);
+                      }
+                    }}
+                  />
+                ) : (
+                  <div className="code-editor-placeholder">
+                    选择一个文件以查看代码
+                  </div>
+                )}
+              </div>
             </div>
+          ) : (
+            <>
+              {directoryTree && (
+                <div className="tree-container">
+                  <DirectoryTree node={directoryTree} />
+                </div>
+              )}
+            </>
           )}
 
           {directoryTree && (
@@ -1001,6 +1205,7 @@ function App() {
                 edges={canvasEdges}
                 setEdges={setCanvasEdgesWrapped}
                 isSecondPass={isSecondPass}
+                onNodeDoubleClick={handleNodeDoubleClick}
               />
             </ReactFlowProvider>
           </div>

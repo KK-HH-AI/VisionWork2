@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
 
@@ -111,4 +112,20 @@ ipcMain.handle('select-folder', async () => {
     return result.filePaths[0];
   }
   return null;
+});
+
+ipcMain.handle('read-file', async (event, filePath) => {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return { success: false, error: '文件不存在' };
+    }
+    const stat = fs.statSync(filePath);
+    if (stat.size > 5 * 1024 * 1024) {
+      return { success: false, error: '文件过大（超过5MB）' };
+    }
+    const content = fs.readFileSync(filePath, 'utf-8');
+    return { success: true, content, size: stat.size };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
