@@ -1,0 +1,23 @@
+{
+  "name": "visionwork2",
+  "version": "1.0.0",
+  "description": "VisionWork2 - AI Code Analysis Tool",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "vite build && electron-builder"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^33.3.1",
+    "vite": "^6.0.7",
+    "wait-on": "^8.0.3"
+  }
+}
