@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import * as d3 from 'd3';
 
 const FILE_ICONS = {
   'js': '📜', 'jsx': '⚛️', 'ts': '📘', 'tsx': '⚛️',
@@ -48,6 +49,117 @@ function DirectoryTree({ node, depth = 0 }) {
   );
 }
 
+const GROUP_COLORS = {
+  'python': '#4B8BBE',
+  'javascript': '#F0DB4F',
+  'react': '#61DAFB',
+  'typescript': '#3178C6',
+  'java': '#ED8B00',
+  'cpp': '#659AD2',
+  'c': '#555555',
+  'web': '#E34F26',
+  'config': '#6C6C6C',
+  'doc': '#8E8E8E',
+  'data': '#4CAF50',
+  'image': '#9C27B0',
+  'other': '#9E9E9E'
+};
+
+function MemoryGraph({ nodes, edges }) {
+  const svgRef = useRef(null);
+  const simulationRef = useRef(null);
+
+  useEffect(() => {
+    if (!svgRef.current || nodes.length === 0) return;
+
+    const container = svgRef.current.parentElement;
+    const width = container.clientWidth || 800;
+    const height = container.clientHeight || 600;
+
+    const svg = d3.select(svgRef.current);
+    svg.selectAll('*').remove();
+    svg.attr('width', width).attr('height', height);
+
+    const g = svg.append('g');
+
+    const zoom = d3.zoom()
+      .scaleExtent([0.1, 4])
+      .on('zoom', (event) => {
+        g.attr('transform', event.transform);
+      });
+
+    svg.call(zoom);
+
+    const simulation = d3.forceSimulation(nodes)
+      .force('charge', d3.forceManyBody().strength(-300))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collision', d3.forceCollide().radius(30))
+      .alphaDecay(0.02);
+
+    simulationRef.current = simulation;
+
+    const link = g.append('g')
+      .selectAll('line')
+      .data(edges)
+      .join('line')
+      .attr('stroke', 'rgba(255,255,255,0.15)')
+      .attr('stroke-width', 1);
+
+    const nodeGroup = g.append('g')
+      .selectAll('g')
+      .data(nodes)
+      .join('g')
+      .call(d3.drag()
+        .on('start', (event, d) => {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          d.fx = d.x;
+          d.fy = d.y;
+        })
+        .on('drag', (event, d) => {
+          d.fx = event.x;
+          d.fy = event.y;
+        })
+        .on('end', (event, d) => {
+          if (!event.active) simulation.alphaTarget(0);
+          d.fx = null;
+          d.fy = null;
+        })
+      );
+
+    nodeGroup.append('circle')
+      .attr('r', 8)
+      .attr('fill', d => GROUP_COLORS[d.group] || GROUP_COLORS['other'])
+      .attr('stroke', 'rgba(255,255,255,0.3)')
+      .attr('stroke-width', 1.5);
+
+    nodeGroup.append('text')
+      .text(d => d.label)
+      .attr('x', 12)
+      .attr('y', 4)
+      .attr('fill', '#c0c0c0')
+      .attr('font-size', '11px')
+      .attr('font-family', 'sans-serif');
+
+    simulation.on('tick', () => {
+      link
+        .attr('x1', d => d.source.x)
+        .attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x)
+        .attr('y2', d => d.target.y);
+
+      nodeGroup.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+
+    return () => {
+      simulation.stop();
+    };
+  }, [nodes, edges]);
+
+  return (
+    <svg ref={svgRef} className="memory-graph-svg"></svg>
+  );
+}
+
 function App() {
   const [ws, setWs] = useState(null);
   const [connected, setConnected] = useState(false);
@@ -55,6 +167,10 @@ function App() {
   const [currentPath, setCurrentPath] = useState('');
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [graphNodes, setGraphNodes] = useState([]);
+  const [graphEdges, setGraphEdges] = useState([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisComplete, setAnalysisComplete] = useState(false);
 
   useEffect(() => {
     async function connect() {
@@ -88,8 +204,15 @@ function App() {
             setDirectoryTree(message.tree);
             setCurrentPath(message.path);
             setError('');
+          } else if (message.type === 'memory_graph') {
+            setGraphNodes(message.nodes);
+            setGraphEdges(message.edges || []);
+          } else if (message.type === 'analysis_complete') {
+            setIsAnalyzing(false);
+            setAnalysisComplete(true);
           } else if (message.type === 'error') {
             setError(message.message);
+            setIsAnalyzing(false);
           } else if (message.type === 'pong') {
           }
         };
@@ -177,6 +300,19 @@ function App() {
     }
   }, [scanDirectory]);
 
+  const simulateAnalysis = useCallback(() => {
+    if (ws && connected && currentPath) {
+      setIsAnalyzing(true);
+      setAnalysisComplete(false);
+      setGraphNodes([]);
+      setGraphEdges([]);
+      ws.send(JSON.stringify({
+        type: 'simulate_analysis',
+        path: currentPath
+      }));
+    }
+  }, [ws, connected, currentPath]);
+
   async function readDirectoryHandle(dirHandle) {
     const node = {
       name: dirHandle.name,
@@ -257,6 +393,19 @@ function App() {
             </div>
           )}
 
+          {directoryTree && (
+            <div className="analysis-actions">
+              <button
+                className="btn-analyze"
+                onClick={simulateAnalysis}
+                disabled={isAnalyzing}
+              >
+                <span className="btn-icon">{isAnalyzing ? '⏳' : '🔬'}</span>
+                <span>{isAnalyzing ? '分析中...' : '模拟分析'}</span>
+              </button>
+            </div>
+          )}
+
           {error && (
             <div className="error-message">
               <span className="error-icon">⚠️</span>
@@ -266,10 +415,23 @@ function App() {
         </aside>
 
         <main className="content-area">
-          <div className="placeholder-content">
-            <h2>欢迎使用 VisionWork2</h2>
-            <p>请从左侧导入项目文件夹开始分析</p>
-          </div>
+          {graphNodes.length > 0 ? (
+            <div className="graph-container">
+              <div className="graph-header">
+                <span className="graph-title">记忆图谱</span>
+                <span className="graph-stats">
+                  {graphNodes.length} 个节点
+                  {analysisComplete && ' · 分析完成'}
+                </span>
+              </div>
+              <MemoryGraph nodes={graphNodes} edges={graphEdges} />
+            </div>
+          ) : (
+            <div className="placeholder-content">
+              <h2>欢迎使用 VisionWork2</h2>
+              <p>请从左侧导入项目文件夹开始分析</p>
+            </div>
+          )}
         </main>
       </div>
     </div>
