@@ -4,11 +4,17 @@ import json
 import argparse
 import asyncio
 import hashlib
+import threading
+import queue
 from pathlib import Path
+from typing import TypedDict, List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.websockets import WebSocketState
 import uvicorn
+
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, END
 
 app = FastAPI()
 
@@ -21,6 +27,46 @@ app.add_middleware(
 
 active_connections = []
 valid_token = None
+should_stop = {}
+
+WORKSPACE_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'workspace')
+
+TEXT_EXTENSIONS = {
+    '.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.cpp', '.c', '.h', '.hpp',
+    '.html', '.css', '.scss', '.less', '.json', '.yaml', '.yml', '.xml',
+    '.md', '.txt', '.csv', '.sh', '.bat', '.ps1', '.sql', '.r', '.rb',
+    '.go', '.rs', '.swift', '.kt', '.scala', '.php', '.lua', '.pl',
+    '.toml', '.ini', '.cfg', '.env', '.gitignore', '.dockerfile',
+    '.vue', '.svelte', '.astro', '.graphql', '.proto',
+}
+
+BINARY_EXTENSIONS = {
+    '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.bmp', '.webp',
+    '.mp3', '.wav', '.mp4', '.avi', '.mov', '.webm',
+    '.zip', '.tar', '.gz', '.rar', '.7z',
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    '.exe', '.dll', '.so', '.dylib', '.bin',
+    '.ttf', '.otf', '.woff', '.woff2', '.eot',
+    '.pyc', '.pyo', '.class', '.o', '.obj',
+}
+
+MAX_FILE_SIZE = 200 * 1024
+
+
+class AnalysisState(TypedDict):
+    folder_path: str
+    profession: str
+    api_url: str
+    api_key: str
+    model_name: str
+    file_queue: List[dict]
+    processed: List[dict]
+    graph_nodes: List[dict]
+    graph_edges: List[dict]
+    current_index: int
+    total_files: int
+    memory_dir: str
+    progress_queue: object
 
 
 @app.websocket("/ws")
@@ -31,8 +77,10 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     await websocket.accept()
-    websocket.max_size = 10 * 1024 * 1024  # 10MB
+    websocket.max_size = 10 * 1024 * 1024
     active_connections.append(websocket)
+
+    analysis_task = None
     try:
         while True:
             data = await websocket.receive_text()
@@ -77,11 +125,61 @@ async def websocket_endpoint(websocket: WebSocket):
                         "message": str(e)
                     })
 
+            elif message.get("type") == "start_analysis":
+                folder_path = message.get("path")
+                profession = message.get("profession", "软件工程师")
+                api_url = message.get("api_url", "")
+                api_key = message.get("api_key", "")
+                model_name = message.get("model_name", "gpt-3.5-turbo")
+                stop_flag = message.get("stop_flag", "")
+
+                if not folder_path:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "No path provided"
+                    })
+                    continue
+
+                if not api_url or not api_key:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "API URL and API Key are required"
+                    })
+                    continue
+
+                print(f"[Backend] Starting analysis task with stop_flag: {stop_flag}")
+                analysis_task = asyncio.create_task(
+                    run_llm_analysis(
+                        websocket, folder_path, profession,
+                        api_url, api_key, model_name, stop_flag
+                    )
+                )
+
+            elif message.get("type") == "stop_analysis":
+                stop_flag = message.get("stop_flag", "")
+                print(f"[Backend] Received stop_analysis request, stop_flag: {stop_flag}")
+                if stop_flag:
+                    should_stop[stop_flag] = True
+                    print(f"[Backend] Set should_stop[{stop_flag}] = True")
+                    print(f"[Backend] Current should_stop dict: {should_stop}")
+                    await websocket.send_json({
+                        "type": "stopped"
+                    })
+                else:
+                    print(f"[Backend] ERROR: No stop_flag in stop_analysis request")
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "No stop_flag provided"
+                    })
+
             elif message.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
 
     except WebSocketDisconnect:
-        active_connections.remove(websocket)
+        if analysis_task and not analysis_task.done():
+            analysis_task.cancel()
+        if websocket in active_connections:
+            active_connections.remove(websocket)
 
 
 def build_directory_tree(root_path: str) -> dict:
@@ -125,9 +223,6 @@ def _scan_directory(path: Path) -> dict:
     return node
 
 
-WORKSPACE_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'workspace')
-
-
 def _collect_files(node, files_list=None):
     if files_list is None:
         files_list = []
@@ -163,6 +258,413 @@ def _get_file_group(filename):
         'png': 'image', 'jpg': 'image', 'jpeg': 'image', 'gif': 'image', 'svg': 'image',
     }
     return groups.get(ext, 'other')
+
+
+def _is_text_file(filepath):
+    ext = Path(filepath).suffix.lower()
+    if ext in BINARY_EXTENSIONS:
+        return False
+    if ext in TEXT_EXTENSIONS:
+        return True
+    return False
+
+
+def _read_file_content(filepath, max_size=MAX_FILE_SIZE):
+    file_size = os.path.getsize(filepath)
+    if file_size > max_size:
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read(max_size)
+        return content + f"\n\n... (文件过大，已截断，原始大小: {file_size} bytes)"
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read()
+    except UnicodeDecodeError:
+        try:
+            with open(filepath, 'r', encoding='gbk') as f:
+                return f.read()
+        except Exception:
+            return None
+
+
+ANALYSIS_PROMPT = """你是一位{profession}。请分析以下代码文件，并生成结构化的分析笔记。
+
+文件名：{filename}
+文件路径：{filepath}
+
+代码内容：
+```
+{code_content}
+```
+
+请按以下结构生成分析笔记（使用Markdown格式）：
+
+## 模块概述
+简要描述该文件/模块的整体功能和职责。
+
+## 核心组件
+列出关键的函数、类、接口及其作用。
+
+## 依赖关系
+分析该模块依赖的其他模块或外部库。
+
+## 注意事项
+指出代码中值得关注的设计模式、潜在问题或改进建议。
+"""
+
+
+IGNORE_DIRS = {
+    'node_modules', '.git', '__pycache__', 'dist', 'dist-electron',
+    '.venv', 'venv', 'workspace', '.vite', 'build', 'target',
+    '.next', '.nuxt', 'coverage', '.tox', '.eggs',
+}
+
+IGNORE_FILE_PATTERNS = {
+    'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+    'poetry.lock', 'Pipfile.lock',
+}
+
+
+def _build_file_queue(folder_path):
+    tree = build_directory_tree(folder_path)
+    all_files = _collect_files(tree)
+    queue = []
+    for f in all_files:
+        filepath = f["path"]
+        if not os.path.isfile(filepath):
+            continue
+        filename = f["name"]
+        if filename in IGNORE_FILE_PATTERNS:
+            continue
+        path_parts = Path(filepath).parts
+        if any(part in IGNORE_DIRS for part in path_parts):
+            continue
+        if not _is_text_file(filepath):
+            continue
+        queue.append({
+            "name": filename,
+            "path": filepath,
+            "group": _get_file_group(filename),
+        })
+    return queue
+
+
+def index_files_node(state: AnalysisState) -> AnalysisState:
+    folder_path = state["folder_path"]
+    file_queue = _build_file_queue(folder_path)
+    memory_dir = _get_memory_dir(folder_path)
+    os.makedirs(memory_dir, exist_ok=True)
+
+    state["file_queue"] = file_queue
+    state["total_files"] = len(file_queue)
+    state["current_index"] = 0
+    state["processed"] = []
+    state["graph_nodes"] = []
+    state["graph_edges"] = []
+    state["memory_dir"] = memory_dir
+
+    progress_queue = state.get("progress_queue")
+    if progress_queue is not None:
+        try:
+            progress_queue.put_nowait({
+                "type": "progress",
+                "currentTask": f"扫描完成，共发现 {len(file_queue)} 个文件，即将开始分析...",
+                "completedFiles": 0,
+                "totalFiles": len(file_queue),
+            })
+        except Exception:
+            pass
+
+    return state
+
+
+def first_pass_reader_node(state: AnalysisState) -> AnalysisState:
+    file_queue = state["file_queue"]
+    current_index = state["current_index"]
+    folder_path = state["folder_path"]
+    memory_dir = state["memory_dir"]
+    progress_queue = state.get("progress_queue")
+    stop_flag = state.get("stop_flag")
+
+    print(f"[Reader] Processing file {current_index + 1}/{len(file_queue)}, stop_flag: {stop_flag}, should_stop value: {should_stop.get(stop_flag, False) if stop_flag else 'N/A'}")
+
+    if current_index >= len(file_queue):
+        return state
+
+    if stop_flag and should_stop.get(stop_flag, False):
+        print(f"[Reader] STOPPED at index {current_index} due to stop_flag")
+        if progress_queue is not None:
+            try:
+                progress_queue.put_nowait({
+                    "type": "stopped",
+                    "completedFiles": current_index,
+                    "totalFiles": state["total_files"],
+                })
+            except Exception:
+                pass
+        return state
+
+    file_info = file_queue[current_index]
+    filename = file_info["name"]
+    filepath = file_info["path"]
+    group = file_info["group"]
+
+    if progress_queue is not None:
+        try:
+            progress_queue.put_nowait({
+                "type": "progress",
+                "currentTask": f"接下来开始分析第 {current_index + 1} 份文件：{filename}",
+                "completedFiles": current_index,
+                "totalFiles": state["total_files"],
+            })
+        except Exception:
+            pass
+
+    code_content = _read_file_content(filepath)
+    if code_content is None:
+        state["current_index"] = current_index + 1
+        if progress_queue is not None:
+            try:
+                progress_queue.put_nowait({
+                    "type": "progress",
+                    "currentTask": f"跳过二进制文件 {filename}",
+                    "completedFiles": current_index + 1,
+                    "totalFiles": state["total_files"],
+                })
+            except Exception:
+                pass
+        return state
+
+    node_id = _generate_node_id(filepath, folder_path)
+
+    try:
+        llm = ChatOpenAI(
+            base_url=state["api_url"],
+            api_key=state["api_key"],
+            model=state["model_name"],
+            temperature=0.3,
+            max_tokens=2000,
+        )
+
+        prompt = ANALYSIS_PROMPT.format(
+            profession=state["profession"],
+            filename=filename,
+            filepath=filepath,
+            code_content=code_content,
+        )
+
+        response = llm.invoke(prompt)
+        note_content = response.content
+
+        if stop_flag and should_stop.get(stop_flag, False):
+            if progress_queue is not None:
+                try:
+                    progress_queue.put_nowait({
+                        "type": "stopped",
+                        "completedFiles": current_index + 1,
+                        "totalFiles": state["total_files"],
+                    })
+                except Exception:
+                    pass
+            state["current_index"] = current_index + 1
+            return state
+
+    except Exception as e:
+        note_content = f"# {filename}\n\n分析失败: {str(e)}\n\n- 类型: {group}\n"
+
+    if stop_flag and should_stop.get(stop_flag, False):
+        if progress_queue is not None:
+            try:
+                progress_queue.put_nowait({
+                    "type": "stopped",
+                    "completedFiles": current_index + 1,
+                    "totalFiles": state["total_files"],
+                })
+            except Exception:
+                pass
+        state["current_index"] = current_index + 1
+        return state
+
+    note_filename = f"{Path(filename).stem}_{node_id}.md"
+    note_path = os.path.join(memory_dir, note_filename)
+    with open(note_path, 'w', encoding='utf-8') as f:
+        f.write(note_content)
+
+    processed_entry = {
+        "filename": filename,
+        "filepath": filepath,
+        "node_id": node_id,
+        "group": group,
+        "note_path": note_path,
+    }
+    state["processed"].append(processed_entry)
+
+    graph_node = {
+        "id": node_id,
+        "label": filename,
+        "group": group,
+        "path": filepath,
+    }
+    state["graph_nodes"].append(graph_node)
+
+    state["current_index"] = current_index + 1
+
+    if progress_queue is not None:
+        try:
+            if state["current_index"] < state["total_files"]:
+                progress_queue.put_nowait({
+                    "type": "progress",
+                    "currentTask": f"第 {state['current_index']} 份文件已经分析好了，接下来开始第 {state['current_index'] + 1} 份：{file_queue[state['current_index']]['name']}",
+                    "completedFiles": state["current_index"],
+                    "totalFiles": state["total_files"],
+                })
+            else:
+                progress_queue.put_nowait({
+                    "type": "progress",
+                    "currentTask": f"第 {state['current_index']} 份文件已经分析好了",
+                    "completedFiles": state["current_index"],
+                    "totalFiles": state["total_files"],
+                })
+            progress_queue.put_nowait({
+                "type": "memory_graph",
+                "nodes": list(state["graph_nodes"]),
+                "edges": list(state["graph_edges"]),
+            })
+        except Exception:
+            pass
+
+    return state
+
+
+def should_continue(state: AnalysisState) -> str:
+    stop_flag = state.get("stop_flag")
+    stop_val = should_stop.get(stop_flag, False) if stop_flag else False
+    print(f"[Continue] stop_flag={stop_flag}, should_stop={stop_val}, current_index={state['current_index']}, total={len(state['file_queue'])}")
+    if stop_flag and stop_val:
+        print(f"[Continue] STOPPING due to stop_flag")
+        return "end"
+    if state["current_index"] >= len(state["file_queue"]):
+        print(f"[Continue] END - all files processed")
+        return "end"
+    print(f"[Continue] CONTINUE to next file")
+    return "continue"
+
+
+def build_analysis_graph():
+    workflow = StateGraph(AnalysisState)
+
+    workflow.add_node("index_files", index_files_node)
+    workflow.add_node("first_pass_reader", first_pass_reader_node)
+
+    workflow.set_entry_point("index_files")
+    workflow.add_edge("index_files", "first_pass_reader")
+    workflow.add_conditional_edges(
+        "first_pass_reader",
+        should_continue,
+        {
+            "continue": "first_pass_reader",
+            "end": END,
+        }
+    )
+
+    return workflow.compile()
+
+
+async def run_llm_analysis(websocket, folder_path, profession, api_url, api_key, model_name, stop_flag=""):
+    progress_queue = queue.Queue()
+    if stop_flag:
+        should_stop[stop_flag] = False
+
+    initial_state: AnalysisState = {
+        "folder_path": folder_path,
+        "profession": profession,
+        "api_url": api_url,
+        "api_key": api_key,
+        "model_name": model_name,
+        "file_queue": [],
+        "processed": [],
+        "graph_nodes": [],
+        "graph_edges": [],
+        "current_index": 0,
+        "total_files": 0,
+        "memory_dir": "",
+        "progress_queue": progress_queue,
+        "stop_flag": stop_flag,
+    }
+
+    graph = build_analysis_graph()
+
+    def run_graph():
+        try:
+            result = graph.invoke(initial_state)
+            if stop_flag and should_stop.get(stop_flag, False):
+                progress_queue.put({
+                    "type": "stopped",
+                    "completed_files": result.get("current_index", 0),
+                    "total_files": result.get("total_files", 0),
+                })
+            else:
+                progress_queue.put({
+                    "type": "first_pass_complete",
+                    "total_files": result.get("total_files", 0),
+                    "memory_dir": result.get("memory_dir", ""),
+                })
+        except Exception as e:
+            progress_queue.put({"type": "error", "message": str(e)})
+
+    graph_thread = threading.Thread(target=run_graph, daemon=True)
+    graph_thread.start()
+
+    try:
+        while True:
+            try:
+                msg = progress_queue.get_nowait()
+            except queue.Empty:
+                if not graph_thread.is_alive():
+                    break
+                await asyncio.sleep(0.05)
+                continue
+
+            if msg.get("type") == "first_pass_complete":
+                try:
+                    await websocket.send_json({
+                        "type": "first_pass_complete",
+                        "total_files": msg.get("total_files", 0),
+                        "memory_dir": msg.get("memory_dir", ""),
+                    })
+                except RuntimeError:
+                    pass
+                break
+            elif msg.get("type") == "stopped":
+                try:
+                    await websocket.send_json({
+                        "type": "stopped",
+                        "completedFiles": msg.get("completed_files", 0),
+                        "totalFiles": msg.get("total_files", 0),
+                    })
+                except RuntimeError:
+                    pass
+                break
+            elif msg.get("type") == "error":
+                try:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": msg.get("message", "Unknown error")
+                    })
+                except RuntimeError:
+                    pass
+                break
+            try:
+                await websocket.send_json(msg)
+            except RuntimeError:
+                break
+    except Exception as e:
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": str(e)
+            })
+        except RuntimeError:
+            pass
 
 
 async def run_simulated_analysis(websocket, folder_path):

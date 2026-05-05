@@ -20,7 +20,7 @@ function findAvailablePort() {
 }
 
 function startPythonBackend(port, token) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const pythonPath = process.env.PYTHON_PATH || 'python';
     const scriptPath = path.join(__dirname, '..', 'src', 'backend', 'server.py');
 
@@ -29,26 +29,27 @@ function startPythonBackend(port, token) {
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
     });
 
-    pythonProcess.stdout.on('data', (data) => {
-      console.log(`[Backend] ${data.toString().trim()}`);
-      if (data.toString().includes('Backend starting')) {
+    const checkBackend = (data) => {
+      const str = data.toString();
+      console.log(`[Backend] ${str.trim()}`);
+      if (str.includes('Backend starting') || str.includes('Uvicorn running')) {
         resolve();
       }
-    });
+    };
 
-    pythonProcess.stderr.on('data', (data) => {
-      console.error(`[Backend Error] ${data.toString().trim()}`);
-    });
+    pythonProcess.stdout.on('data', checkBackend);
+    pythonProcess.stderr.on('data', checkBackend);
 
     pythonProcess.on('error', (err) => {
-      reject(new Error(`Failed to start Python backend: ${err.message}`));
+      console.error(`[Backend Error] ${err.message}`);
+      resolve();
     });
 
     pythonProcess.on('exit', (code) => {
       console.log(`[Backend] Process exited with code ${code}`);
     });
 
-    setTimeout(() => resolve(), 5000);
+    setTimeout(() => resolve(), 3000);
   });
 }
 
