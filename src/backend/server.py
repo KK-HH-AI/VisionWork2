@@ -15,6 +15,8 @@ import uvicorn
 
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+from langchain_core.tools import tool
 
 app = FastAPI()
 
@@ -67,6 +69,7 @@ class AnalysisState(TypedDict):
     total_files: int
     memory_dir: str
     progress_queue: object
+    retrieval_path: List[str]
 
 
 @app.websocket("/ws")
@@ -395,6 +398,7 @@ def index_files_node(state: AnalysisState) -> AnalysisState:
     state["graph_nodes"] = []
     state["graph_edges"] = []
     state["memory_dir"] = memory_dir
+    state["retrieval_path"] = []
 
     progress_queue = state.get("progress_queue")
     if progress_queue is not None:
@@ -621,17 +625,79 @@ def _extract_json_objects(buffer):
     return commands, buffer
 
 
+def _create_search_memory_tool(memory_dir, retrieval_path, progress_queue):
+    @tool
+    def search_memory(query: str) -> str:
+        """搜索项目记忆库中的代码分析笔记。传入关键词或问题，返回相关的笔记内容摘要。"""
+        results = []
+        visited_ids = []
+
+        if not os.path.exists(memory_dir):
+            return "记忆库目录不存在，请先完成第一层分析。"
+
+        for filename in os.listdir(memory_dir):
+            if not filename.endswith('.md'):
+                continue
+            filepath = os.path.join(memory_dir, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    content = f.read()
+            except Exception:
+                continue
+
+            query_lower = query.lower()
+            content_lower = content.lower()
+            if query_lower in content_lower or any(
+                keyword in content_lower
+                for keyword in query_lower.split()
+                if len(keyword) >= 2
+            ):
+                parts = filename.replace('.md', '').rsplit('_', 1)
+                node_id = parts[-1] if len(parts) > 1 else filename.replace('.md', '')
+
+                results.append({
+                    "filename": filename,
+                    "node_id": node_id,
+                    "content": content[:600],
+                })
+                if node_id not in retrieval_path:
+                    visited_ids.append(node_id)
+
+        for nid in visited_ids:
+            if nid not in retrieval_path:
+                retrieval_path.append(nid)
+
+        if visited_ids and progress_queue is not None:
+            try:
+                progress_queue.put_nowait({
+                    "type": "memory_path_update",
+                    "nodeIds": list(retrieval_path),
+                })
+            except Exception:
+                pass
+
+        if not results:
+            return f"未在记忆库中找到与 '{query}' 直接相关的内容。可尝试使用文件名、模块名或功能关键词进行搜索。"
+
+        output = f"找到 {len(results)} 条相关记忆：\n\n"
+        for r in results:
+            output += f"---\n### [{r['node_id']}] {r['filename']}\n{r['content']}\n"
+        return output
+
+    return search_memory
+
+
 def second_pass_reader_node(state: AnalysisState) -> AnalysisState:
     processed = state["processed"]
     progress_queue = state.get("progress_queue")
     stop_flag = state.get("stop_flag")
+    memory_dir = state.get("memory_dir", "")
+    retrieval_path = state.get("retrieval_path", [])
 
     if stop_flag and should_stop.get(stop_flag, False):
         if progress_queue is not None:
             try:
-                progress_queue.put_nowait({
-                    "type": "second_pass_complete",
-                })
+                progress_queue.put_nowait({"type": "second_pass_complete"})
             except Exception:
                 pass
         return state
@@ -640,7 +706,7 @@ def second_pass_reader_node(state: AnalysisState) -> AnalysisState:
         try:
             progress_queue.put_nowait({
                 "type": "progress",
-                "currentTask": "第二层阅读：正在生成分析图...",
+                "currentTask": "第二层阅读：智能体正在检索记忆并生成分析图...",
                 "completedFiles": state["total_files"],
                 "totalFiles": state["total_files"],
             })
@@ -675,20 +741,70 @@ def second_pass_reader_node(state: AnalysisState) -> AnalysisState:
             model=state["model_name"],
             temperature=0.5,
             max_tokens=4000,
-            streaming=True,
         )
 
-        buffer = ""
-        for chunk in llm.stream(prompt):
+        search_memory_tool = _create_search_memory_tool(
+            memory_dir, retrieval_path, progress_queue
+        )
+
+        llm_with_tools = llm.bind_tools([search_memory_tool])
+
+        system_msg = SystemMessage(content=f"""你是一位{state['profession']}，正在分析一个代码项目。
+
+你可以使用 search_memory 工具来搜索项目的记忆库（包含各代码文件的LLM分析笔记），以获取更详细的模块信息。
+
+当你对项目有了足够的理解后，请生成分析图指令序列（JSON数组格式）。
+
+注意：
+- 在生成分析图之前，建议先用 search_memory 搜索关键模块的信息
+- 每次搜索后你会获得相关笔记，帮助你更好地理解模块间的关系
+- 最终输出必须是纯JSON数组，不要包含markdown标记""")
+
+        human_msg = HumanMessage(content=prompt)
+
+        messages = [system_msg, human_msg]
+        max_tool_rounds = 8
+        tool_round = 0
+
+        while tool_round < max_tool_rounds:
             if stop_flag and should_stop.get(stop_flag, False):
                 break
 
-            token = chunk.content if hasattr(chunk, 'content') else str(chunk)
-            if not token:
+            response = llm_with_tools.invoke(messages)
+            messages.append(response)
+
+            if hasattr(response, 'tool_calls') and response.tool_calls:
+                for tool_call in response.tool_calls:
+                    tool_name = tool_call.get("name", "")
+                    tool_args = tool_call.get("args", {})
+                    tool_call_id = tool_call.get("id", "")
+
+                    if progress_queue is not None:
+                        try:
+                            progress_queue.put_nowait({
+                                "type": "progress",
+                                "currentTask": f"智能体正在检索记忆: {tool_args.get('query', '')[:50]}...",
+                                "completedFiles": state["total_files"],
+                                "totalFiles": state["total_files"],
+                            })
+                        except Exception:
+                            pass
+
+                    if tool_name == "search_memory":
+                        result = search_memory_tool.invoke(tool_args)
+                    else:
+                        result = f"未知工具: {tool_name}"
+
+                    messages.append(ToolMessage(
+                        content=str(result),
+                        tool_call_id=tool_call_id
+                    ))
+
+                tool_round += 1
                 continue
 
-            buffer += token
-            commands, buffer = _extract_json_objects(buffer)
+            content = response.content if hasattr(response, 'content') else str(response)
+            commands, _ = _extract_json_objects(content)
 
             for cmd in commands:
                 if progress_queue is not None:
@@ -700,17 +816,21 @@ def second_pass_reader_node(state: AnalysisState) -> AnalysisState:
                     except Exception:
                         pass
 
-        if buffer.strip():
-            commands, _ = _extract_json_objects(buffer)
-            for cmd in commands:
-                if progress_queue is not None:
-                    try:
-                        progress_queue.put_nowait({
-                            "type": "canvas_command",
-                            "command": cmd,
-                        })
-                    except Exception:
-                        pass
+            if not commands and content.strip():
+                commands, _ = _extract_json_objects("[" + content)
+                for cmd in commands:
+                    if progress_queue is not None:
+                        try:
+                            progress_queue.put_nowait({
+                                "type": "canvas_command",
+                                "command": cmd,
+                            })
+                        except Exception:
+                            pass
+
+            break
+
+        state["retrieval_path"] = retrieval_path
 
     except Exception as e:
         if progress_queue is not None:
@@ -790,6 +910,7 @@ async def run_llm_analysis(websocket, folder_path, profession, api_url, api_key,
         "memory_dir": "",
         "progress_queue": progress_queue,
         "stop_flag": stop_flag,
+        "retrieval_path": [],
     }
 
     graph = build_analysis_graph()
@@ -933,6 +1054,24 @@ async def run_simulated_analysis(websocket, folder_path):
         })
     except RuntimeError:
         pass
+
+    node_ids = [n["id"] for n in nodes]
+    if len(node_ids) >= 4:
+        simulated_paths = [
+            node_ids[:3],
+            node_ids[:5],
+            node_ids[:7],
+            node_ids[:9],
+        ]
+        for path in simulated_paths:
+            await asyncio.sleep(0.8)
+            try:
+                await websocket.send_json({
+                    "type": "memory_path_update",
+                    "nodeIds": path,
+                })
+            except RuntimeError:
+                return
 
 
 def main():
