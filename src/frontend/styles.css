@@ -453,6 +453,7 @@ body.theme-light .status.disconnected {
 .tree-item-header {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 6px;
   padding: 8px 12px;
   cursor: pointer;
@@ -467,6 +468,7 @@ body.theme-light .status.disconnected {
 .tree-item.tree-file {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 6px;
   padding: 8px 12px;
   cursor: pointer;
