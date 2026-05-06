@@ -9,9 +9,10 @@ import ReactFlow, {
   applyEdgeChanges,
   Background,
   Controls,
-  MiniMap,
   MarkerType,
   ReactFlowProvider,
+  Handle,
+  Position,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
@@ -113,7 +114,7 @@ const NODE_TYPE_COLORS = {
   'component': '#9C27B0',
 };
 
-function MemoryGraph({ nodes, edges, retrievalPath }) {
+function MemoryGraph({ nodes, edges, retrievalPath, theme, onNodeClick }) {
   const svgRef = useRef(null);
   const simulationRef = useRef(null);
   const pathGroupRef = useRef(null);
@@ -165,13 +166,19 @@ function MemoryGraph({ nodes, edges, retrievalPath }) {
       .selectAll('line')
       .data(edges)
       .join('line')
-      .attr('stroke', 'rgba(255,255,255,0.15)')
-      .attr('stroke-width', 1);
+      .attr('stroke', theme === 'dark' ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.25)')
+      .attr('stroke-width', 1.5);
 
     const nodeGroup = g.append('g')
       .selectAll('g')
       .data(nodes)
       .join('g')
+      .style('cursor', 'pointer')
+      .on('click', (event, d) => {
+        if (onNodeClick && d.path) {
+          onNodeClick(d);
+        }
+      })
       .call(d3.drag()
         .on('start', (event, d) => {
           if (!event.active) simulation.alphaTarget(0.3).restart();
@@ -192,19 +199,27 @@ function MemoryGraph({ nodes, edges, retrievalPath }) {
     nodeGroup.append('circle')
       .attr('r', 7)
       .attr('fill', d => GROUP_COLORS[d.group] || GROUP_COLORS['other'])
-      .attr('stroke', 'rgba(255,255,255,0.3)')
+      .attr('stroke', theme === 'dark' ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)')
       .attr('stroke-width', 1.5);
 
     nodeGroup.append('text')
-      .text(d => d.label)
+      .text(d => {
+        const label = d.label || '';
+        if (d.path && d.path.endsWith('.md')) {
+          const parts = d.path.split(/[\\/]/);
+          const filename = parts[parts.length - 1];
+          return filename.replace(/\.md$/, '');
+        }
+        return label;
+      })
       .attr('x', 10)
       .attr('y', 3)
-      .attr('fill', '#c0c0c0')
+      .attr('fill', theme === 'dark' ? '#c0c0c0' : '#495057')
       .attr('font-size', '10px')
       .attr('font-family', 'sans-serif');
 
     const pathGroup = g.append('g').attr('class', 'retrieval-path-group');
-    pathGroupRef.current = { g: pathGroup, nodes, simulation };
+    pathGroupRef.current = { g: pathGroup, nodes, simulation, theme };
 
     simulation.on('tick', () => {
       link
@@ -221,7 +236,7 @@ function MemoryGraph({ nodes, edges, retrievalPath }) {
     return () => {
       simulation.stop();
     };
-  }, [nodes, edges]);
+  }, [nodes, edges, theme]);
 
   useEffect(() => {
     updatePathEdges();
@@ -339,27 +354,36 @@ function CustomNode({ data }) {
   const color = NODE_TYPE_COLORS[data.nodeType] || GROUP_COLORS[data.group] || GROUP_COLORS['other'];
   return (
     <div className="rf-custom-node" style={{ borderColor: color }}>
+      <Handle type="target" position={Position.Top} className="rf-handle" />
       <div className="rf-node-header" style={{ backgroundColor: color }}>
         <span className="rf-node-type">{data.nodeType || data.group || 'module'}</span>
       </div>
       <div className="rf-node-body">
         <span className="rf-node-label">{data.label}</span>
       </div>
+      <Handle type="source" position={Position.Bottom} className="rf-handle" />
     </div>
   );
 }
 
 const nodeTypes = { customNode: CustomNode };
 
-function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSecondPass, onNodeDoubleClick }) {
+function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSecondPass, onNodeDoubleClick, theme }) {
   const commandQueueRef = useRef([]);
   const processingRef = useRef(false);
   const reactFlowInstanceRef = useRef(null);
   const latestNodesRef = useRef(nodes);
   const latestEdgesRef = useRef(edges);
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
 
   latestNodesRef.current = nodes;
   latestEdgesRef.current = edges;
+
+  const edgeColor = theme === 'dark' ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.25)';
+  const edgeMarkerColor = theme === 'dark' ? '#aaa' : '#555';
+  const labelColor = theme === 'dark' ? '#aaa' : '#555';
+  const labelBgColor = theme === 'dark' ? 'rgba(26, 26, 46, 0.8)' : 'rgba(255, 255, 255, 0.9)';
 
   const processCommand = useCallback(async (command) => {
     const cmd = command.cmd;
@@ -415,15 +439,15 @@ function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSecondPass, onNod
           label: command.label || '',
           type: 'smoothstep',
           animated: true,
-          markerEnd: { type: MarkerType.ArrowClosed, color: '#888' },
+          markerEnd: { type: MarkerType.ArrowClosed, color: edgeMarkerColor },
           style: {
-            stroke: 'rgba(255,255,255,0.3)',
+            stroke: edgeColor,
             strokeWidth: 1.5,
             opacity: 0,
             transition: 'opacity 0.2s ease-in',
           },
-          labelStyle: { fill: '#aaa', fontSize: 10 },
-          labelBgStyle: { fill: 'rgba(26, 26, 46, 0.8)' },
+          labelStyle: { fill: labelColor, fontSize: 10 },
+          labelBgStyle: { fill: labelBgColor },
         };
         setTimeout(() => {
           setEdges((current) =>
@@ -516,16 +540,8 @@ function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSecondPass, onNod
         }}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="rgba(255,255,255,0.05)" gap={20} />
+        <Background color={theme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} gap={20} />
         <Controls className="rf-controls" />
-        <MiniMap
-          nodeColor={(node) => {
-            const color = NODE_TYPE_COLORS[node.data?.nodeType] || GROUP_COLORS[node.data?.group] || '#9E9E9E';
-            return color;
-          }}
-          maskColor="rgba(0,0,0,0.6)"
-          style={{ backgroundColor: 'rgba(26, 26, 46, 0.9)' }}
-        />
       </ReactFlow>
     </div>
   );
@@ -559,6 +575,18 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [graphNodes, setGraphNodes] = useState([]);
   const [graphEdges, setGraphEdges] = useState([]);
+  const [memoryNotes, setMemoryNotes] = useState([]);
+  const [memoryDir, setMemoryDir] = useState('');
+  const [selectedMemoryNote, setSelectedMemoryNote] = useState(null);
+  const [memoryNoteContent, setMemoryNoteContent] = useState('');
+  const [memoryNoteSaving, setMemoryNoteSaving] = useState(false);
+  const [memoryNoteLoading, setMemoryNoteLoading] = useState(false);
+  const [memoryNoteError, setMemoryNoteError] = useState('');
+  const [memoryNoteSaved, setMemoryNoteSaved] = useState(false);
+  const [showMemoryNotes, setShowMemoryNotes] = useState(false);
+  const [showMemoryDirTree, setShowMemoryDirTree] = useState(true);
+  const [workspaceTree, setWorkspaceTree] = useState([]);
+  const [expandedDirs, setExpandedDirs] = useState({});
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [currentTask, setCurrentTask] = useState('');
@@ -567,6 +595,14 @@ function App() {
   const [stopFlag, setStopFlag] = useState('');
   const [isSecondPass, setIsSecondPass] = useState(false);
   const [retrievalPath, setRetrievalPath] = useState([]);
+  const [theme, setTheme] = useState(() => {
+    try {
+      const saved = localStorage.getItem('visionwork2_theme');
+      return saved || 'dark';
+    } catch (e) {
+      return 'dark';
+    }
+  });
 
   const [showConfig, setShowConfig] = useState(false);
   const [manualPath, setManualPath] = useState('d:\\总体\\工作\\在校工作经历\\VisionWork2\\workspace\\VisionWork2');
@@ -578,6 +614,10 @@ function App() {
 
   const [canvasNodes, setCanvasNodes] = useNodesState([]);
   const [canvasEdges, setCanvasEdges] = useEdgesState([]);
+
+  const [sidebarWidth, setSidebarWidth] = useState(340);
+  const [memoryPanelWidth, setMemoryPanelWidth] = useState(340);
+  const isDraggingRef = useRef(false);
 
   const [codeViewNode, setCodeViewNode] = useState(null);
   const [codeFileList, setCodeFileList] = useState([]);
@@ -618,6 +658,211 @@ function App() {
     } catch (e) {
       console.error('Failed to load config:', e);
     }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('visionwork2_theme', theme);
+      document.body.className = theme === 'dark' ? 'theme-dark' : 'theme-light';
+    } catch (e) {
+      console.error('Failed to save theme:', e);
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
+
+  const handleMemoryNodeClick = async (node) => {
+    setSelectedMemoryNote(node);
+    setShowMemoryNotes(true);
+    setMemoryNoteContent('');
+    setMemoryNoteError('');
+    setMemoryNoteLoading(true);
+    try {
+      const port = backendPortRef.current;
+      const token = new URLSearchParams(window.location.search).get('token') || '';
+      const response = await fetch(`http://127.0.0.1:${port}/read-file?path=${encodeURIComponent(node.path)}&token=${token}`);
+      const data = await response.json();
+      if (data.success) {
+        setMemoryNoteContent(data.content);
+      } else {
+        setMemoryNoteError('无法读取文件内容');
+      }
+    } catch (e) {
+      setMemoryNoteError('读取文件失败: ' + e.message);
+    } finally {
+      setMemoryNoteLoading(false);
+    }
+  };
+
+  const loadMemoryDir = async (dir) => {
+    if (!dir) return;
+    try {
+      const port = backendPortRef.current;
+      const token = new URLSearchParams(window.location.search).get('token') || '';
+      const response = await fetch(`http://127.0.0.1:${port}/list-memory-dir?memory_dir=${encodeURIComponent(dir)}&token=${token}`);
+      const data = await response.json();
+      if (data.success) {
+        setMemoryNotes(data.files);
+      }
+    } catch (e) {
+      console.error('Failed to load memory directory:', e);
+    }
+  };
+
+  const loadMemoryDirByPath = async () => {
+    try {
+      const port = backendPortRef.current;
+      const token = new URLSearchParams(window.location.search).get('token') || '';
+      const response = await fetch(`http://127.0.0.1:${port}/get-workspace-tree?token=${token}`);
+      const data = await response.json();
+      if (data.success) {
+        setMemoryDir(data.workspace_dir);
+        setWorkspaceTree(data.tree);
+      }
+    } catch (e) {
+      console.error('Failed to load workspace tree:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (connected) {
+      loadMemoryDirByPath();
+    }
+  }, [connected]);
+
+  const toggleDir = (path) => {
+    setExpandedDirs(prev => ({
+      ...prev,
+      [path]: !prev[path],
+    }));
+  };
+
+  const countFiles = (items) => {
+    let count = 0;
+    for (const item of items) {
+      if (item.type === 'file') {
+        count++;
+      } else if (item.children) {
+        count += countFiles(item.children);
+      }
+    }
+    return count;
+  };
+
+  const renderTree = (items, depth = 0) => {
+    return items.map((item, index) => {
+      if (item.type === 'directory') {
+        const isExpanded = expandedDirs[item.path];
+        return (
+          <div key={item.path} className="tree-item">
+            <div
+              className="tree-item-header tree-dir"
+              onClick={() => toggleDir(item.path)}
+            >
+              <span className="tree-icon">{isExpanded ? '📂' : '📁'}</span>
+              <span className="tree-name">{item.name}</span>
+            </div>
+            {isExpanded && item.children && item.children.length > 0 && (
+              <div className="tree-children">
+                {renderTree(item.children, depth + 1)}
+              </div>
+            )}
+          </div>
+        );
+      } else {
+        return (
+          <div
+            key={item.path}
+            className="tree-item tree-file"
+            onClick={() => handleMemoryNoteClick(item)}
+          >
+            <span className="tree-icon">📝</span>
+            <span className="tree-name" title={item.name}>{item.name}</span>
+          </div>
+        );
+      }
+    });
+  };
+
+  const handleMemoryNoteClick = async (note) => {
+    setSelectedMemoryNote(note);
+    setShowMemoryNotes(true);
+    setShowMemoryDirTree(false);
+    setMemoryNoteContent('');
+    setMemoryNoteError('');
+    setMemoryNoteLoading(true);
+    try {
+      const port = backendPortRef.current;
+      const token = new URLSearchParams(window.location.search).get('token') || '';
+      const response = await fetch(`http://127.0.0.1:${port}/read-file?path=${encodeURIComponent(note.path)}&token=${token}`);
+      const data = await response.json();
+      if (data.success) {
+        setMemoryNoteContent(data.content);
+      } else {
+        setMemoryNoteError('无法读取文件内容');
+      }
+    } catch (e) {
+      setMemoryNoteError('读取文件失败: ' + e.message);
+    } finally {
+      setMemoryNoteLoading(false);
+    }
+  };
+
+  const handleSaveMemoryNote = async () => {
+    if (!selectedMemoryNote || !selectedMemoryNote.path) return;
+    setMemoryNoteSaving(true);
+    try {
+      const port = backendPortRef.current;
+      const token = new URLSearchParams(window.location.search).get('token') || '';
+      const response = await fetch(`http://127.0.0.1:${port}/save-file?token=${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: selectedMemoryNote.path, content: memoryNoteContent }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setMemoryNoteSaved(true);
+        setTimeout(() => setMemoryNoteSaved(false), 2000);
+      } else {
+        setMemoryNoteError('保存失败: ' + (data.detail || '未知错误'));
+      }
+    } catch (e) {
+      setMemoryNoteError('保存失败: ' + e.message);
+    } finally {
+      setMemoryNoteSaving(false);
+    }
+  };
+
+  const handleMouseMoveRef = useRef(null);
+  const handleMouseUpRef = useRef(null);
+
+  handleMouseMoveRef.current = (e) => {
+    if (!isDraggingRef.current) return;
+    if (isDraggingRef.current === 'left') {
+      const newWidth = Math.max(250, Math.min(500, e.clientX));
+      setSidebarWidth(newWidth);
+    } else if (isDraggingRef.current === 'right') {
+      const newWidth = Math.max(250, Math.min(500, window.innerWidth - e.clientX));
+      setMemoryPanelWidth(newWidth);
+    }
+  };
+
+  handleMouseUpRef.current = () => {
+    isDraggingRef.current = false;
+    document.removeEventListener('mousemove', handleMouseMoveRef.current);
+    document.removeEventListener('mouseup', handleMouseUpRef.current);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  };
+
+  const handleMouseDown = useCallback((panel) => {
+    isDraggingRef.current = panel;
+    document.addEventListener('mousemove', handleMouseMoveRef.current);
+    document.addEventListener('mouseup', handleMouseUpRef.current);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
   }, []);
 
   useEffect(() => {
@@ -673,6 +918,10 @@ function App() {
             flushSync(() => {
               setGraphNodes(message.nodes || []);
               setGraphEdges(message.edges || []);
+              if (message.memory_dir) {
+                setMemoryDir(message.memory_dir);
+                loadMemoryDir(message.memory_dir);
+              }
             });
           } else if (message.type === 'canvas_command') {
             const cmd = message.command;
@@ -950,12 +1199,17 @@ function App() {
     <div className="app-container">
       <header className="header">
         <h1>VisionWork2</h1>
-        <div className={`status ${connected ? 'connected' : 'disconnected'}`}>
-          {connected ? '已连接' : '未连接'}
+        <div className="header-right">
+          <button className="btn-theme-toggle" onClick={toggleTheme} title="切换主题">
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
+          <div className={`status ${connected ? 'connected' : 'disconnected'}`}>
+            {connected ? '已连接' : '未连接'}
+          </div>
         </div>
       </header>
 
-      <div className="main-content">
+      <div className="main-content" style={{ '--sidebar-width': sidebarWidth + 'px', '--memory-panel-width': memoryPanelWidth + 'px' }}>
         <aside className="sidebar">
           <div className="sidebar-header">
             <h2>项目目录</h2>
@@ -1081,7 +1335,7 @@ function App() {
                     height="100%"
                     language={selectedCodeFile ? getMonacoLanguage(selectedCodeFile.file) : 'plaintext'}
                     value={fileContent}
-                    theme="vs-dark"
+                    theme={theme === 'dark' ? 'vs-dark' : 'vs'}
                     options={{
                       readOnly: true,
                       minimap: { enabled: false },
@@ -1154,24 +1408,13 @@ function App() {
                     <span>停止分析</span>
                   </button>
                 ) : (
-                  <>
-                    <button
-                      className="btn-analyze btn-analyze-primary"
-                      onClick={startLLMAnalysis}
-                      disabled={!apiKey.trim()}
-                    >
-                      <span className="btn-icon">🚀</span>
-                      <span>开始分析</span>
-                    </button>
-                    <button
-                      className="btn-analyze btn-analyze-secondary"
-                      onClick={simulateAnalysis}
-                      disabled={isAnalyzing}
-                    >
-                      <span className="btn-icon">🔬</span>
-                      <span>模拟分析</span>
-                    </button>
-                  </>
+                  <button
+                    className="btn-analyze btn-analyze-primary"
+                    onClick={startLLMAnalysis}
+                  >
+                    <span className="btn-icon">🚀</span>
+                    <span>开始分析</span>
+                  </button>
                 )}
               </div>
             </div>
@@ -1184,6 +1427,11 @@ function App() {
             </div>
           )}
         </aside>
+
+        <div
+          className="resize-handle resize-handle-left"
+          onMouseDown={() => handleMouseDown('left')}
+        />
 
         <main className="canvas-area">
           <div className="graph-container">
@@ -1206,33 +1454,102 @@ function App() {
                 setEdges={setCanvasEdgesWrapped}
                 isSecondPass={isSecondPass}
                 onNodeDoubleClick={handleNodeDoubleClick}
+                theme={theme}
               />
             </ReactFlowProvider>
           </div>
         </main>
 
+        <div
+          className="resize-handle resize-handle-right"
+          onMouseDown={() => handleMouseDown('right')}
+        />
+
         <aside className="memory-panel">
-          <div className="graph-container">
-            <div className="graph-header">
-              <span className="graph-title">记忆图谱</span>
-              <span className="graph-stats">
-                {graphNodes.length > 0
-                  ? `${graphNodes.length} 个节点${analysisComplete ? ' · 分析完成' : ''}`
-                  : '等待分析开始...'}
-                {retrievalPath.length > 0 && (
-                  <span className="path-indicator" title="检索路径">
-                    {' · '}🔗 {retrievalPath.length} 步检索
-                    <button
-                      className="btn-clear-path"
-                      onClick={() => setRetrievalPath([])}
-                      title="清除检索路径"
-                    >✕</button>
+          {!showMemoryNotes ? (
+            <div className="memory-panel-content">
+              <div className="memory-panel-section">
+                <div className="graph-header">
+                  <span className="graph-title">记忆图谱</span>
+                  <span className="graph-stats">
+                    {graphNodes.length > 0
+                      ? `${graphNodes.length} 个节点`
+                      : '等待分析开始...'}
                   </span>
-                )}
-              </span>
+                </div>
+                <div className="memory-graph-wrapper">
+                  {graphNodes.length > 0 ? (
+                    <MemoryGraph nodes={graphNodes} edges={graphEdges} retrievalPath={retrievalPath} theme={theme} onNodeClick={handleMemoryNodeClick} />
+                  ) : (
+                    <div className="memory-notes-empty">
+                      <div className="empty-icon">📊</div>
+                      <p>暂无图谱</p>
+                      <p className="empty-hint">选择项目文件夹并开始分析后，智能体会生成记忆图谱</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="memory-panel-section memory-panel-section-tree">
+                <div className="graph-header">
+                  <span className="graph-title">工作区笔记</span>
+                  <span className="graph-stats">
+                    {workspaceTree.length > 0
+                      ? `${countFiles(workspaceTree)} 个笔记文件`
+                      : '选择项目文件夹即可查看'}
+                    {memoryDir && (
+                      <span className="memory-dir-path" title={memoryDir}>
+                        📁 {currentPath ? currentPath.split(/[\\/]/).pop() : '当前项目'}
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="workspace-tree-container">
+                  {workspaceTree.length > 0 ? (
+                    renderTree(workspaceTree)
+                  ) : (
+                    <div className="memory-notes-empty">
+                      <div className="empty-icon">📁</div>
+                      <p>未选择项目文件夹</p>
+                      <p className="empty-hint">选择项目文件夹即可查看智能体的笔记</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-            <MemoryGraph nodes={graphNodes} edges={graphEdges} retrievalPath={retrievalPath} />
-          </div>
+          ) : (
+            <div className="memory-notes-panel">
+              <div className="memory-notes-header">
+                <button className="btn-back-notes" onClick={() => setShowMemoryNotes(false)}>
+                  <span>← 返回图谱</span>
+                </button>
+                <span className="memory-notes-title">{selectedMemoryNote?.label || '笔记'}</span>
+              </div>
+              {memoryNoteLoading ? (
+                <div className="memory-notes-loading">加载中...</div>
+              ) : memoryNoteError ? (
+                <div className="memory-notes-error">{memoryNoteError}</div>
+              ) : (
+                <div className="memory-notes-editor">
+                  <textarea
+                    className="memory-notes-textarea"
+                    value={memoryNoteContent}
+                    onChange={(e) => setMemoryNoteContent(e.target.value)}
+                    placeholder="编辑笔记内容..."
+                  />
+                  <div className="memory-notes-actions">
+                    <button
+                      className="btn-save-note"
+                      onClick={handleSaveMemoryNote}
+                      disabled={memoryNoteSaving}
+                    >
+                      {memoryNoteSaving ? '保存中...' : '💾 保存'}
+                    </button>
+                    {memoryNoteSaved && <span className="note-saved-hint">✅ 已保存</span>}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </aside>
       </div>
     </div>

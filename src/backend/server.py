@@ -93,6 +93,111 @@ async def read_file(path: str = Query(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/save-file")
+async def save_file(request: dict):
+    try:
+        path = request.get("path")
+        content = request.get("content")
+        if not path:
+            raise HTTPException(status_code=400, detail="缺少文件路径")
+        if content is None:
+            raise HTTPException(status_code=400, detail="缺少文件内容")
+        if not os.path.exists(os.path.dirname(path)):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return JSONResponse({"success": True, "message": "文件保存成功"})
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/list-memory-dir")
+async def list_memory_dir(memory_dir: str = Query(...)):
+    try:
+        if not os.path.exists(memory_dir):
+            return JSONResponse({"success": True, "files": []})
+        files = []
+        for filename in sorted(os.listdir(memory_dir)):
+            filepath = os.path.join(memory_dir, filename)
+            if os.path.isfile(filepath):
+                files.append({
+                    "name": filename,
+                    "path": filepath,
+                    "size": os.path.getsize(filepath),
+                })
+        return JSONResponse({"success": True, "files": files})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/get-memory-dir")
+async def get_memory_dir(folder_path: str = Query(...)):
+    try:
+        memory_dir = _get_memory_dir(folder_path)
+        if not os.path.exists(memory_dir):
+            return JSONResponse({"success": True, "memory_dir": memory_dir, "files": []})
+        files = []
+        for filename in sorted(os.listdir(memory_dir)):
+            filepath = os.path.join(memory_dir, filename)
+            if os.path.isfile(filepath):
+                files.append({
+                    "name": filename,
+                    "path": filepath,
+                    "size": os.path.getsize(filepath),
+                })
+        return JSONResponse({"success": True, "memory_dir": memory_dir, "files": files})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _build_dir_tree(base_path):
+    """递归构建目录树结构"""
+    if not os.path.exists(base_path):
+        return []
+    
+    tree = []
+    try:
+        entries = sorted(os.listdir(base_path))
+        for entry in entries:
+            # 跳过隐藏文件和常见不需要扫描的目录
+            if entry.startswith('.'):
+                continue
+            full_path = os.path.join(base_path, entry)
+            if os.path.isdir(full_path):
+                children = _build_dir_tree(full_path)
+                tree.append({
+                    "name": entry,
+                    "path": full_path,
+                    "type": "directory",
+                    "children": children,
+                })
+            elif entry.endswith('.md'):
+                tree.append({
+                    "name": entry,
+                    "path": full_path,
+                    "type": "file",
+                    "size": os.path.getsize(full_path),
+                })
+    except Exception:
+        pass
+    return tree
+
+
+@app.get("/get-workspace-tree")
+async def get_workspace_tree():
+    try:
+        # 固定读取项目根目录下的 workspace/ 文件夹
+        workspace_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'workspace')
+        if not os.path.exists(workspace_dir):
+            return JSONResponse({"success": True, "workspace_dir": workspace_dir, "tree": []})
+        tree = _build_dir_tree(workspace_dir)
+        return JSONResponse({"success": True, "workspace_dir": workspace_dir, "tree": tree})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     token = websocket.query_params.get("token")
@@ -560,9 +665,10 @@ def first_pass_reader_node(state: AnalysisState) -> AnalysisState:
 
     graph_node = {
         "id": node_id,
-        "label": filename,
+        "label": note_filename,
         "group": group,
-        "path": filepath,
+        "path": note_path,
+        "source_file": filepath,
     }
     state["graph_nodes"].append(graph_node)
 
@@ -593,6 +699,7 @@ def first_pass_reader_node(state: AnalysisState) -> AnalysisState:
                 "type": "memory_graph",
                 "nodes": list(state["graph_nodes"]),
                 "edges": list(state["graph_edges"]),
+                "memory_dir": state["memory_dir"],
             })
         except Exception:
             pass
@@ -1062,7 +1169,8 @@ async def run_simulated_analysis(websocket, folder_path):
                 await websocket.send_json({
                     "type": "memory_graph",
                     "nodes": list(nodes),
-                    "edges": []
+                    "edges": [],
+                    "memory_dir": memory_dir,
                 })
             except RuntimeError:
                 return
