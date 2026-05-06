@@ -664,42 +664,53 @@ body.theme-light .status.disconnected {
   color: var(--danger);
 }
 
-.memory-notes-editor {
+.memory-note-editor {
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
+  background: var(--bg-secondary);
 }
 
-.memory-notes-textarea {
-  flex: 1;
-  padding: 16px;
-  background: var(--bg-tertiary);
-  border: none;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-primary);
-  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-  font-size: 0.85rem;
-  line-height: 1.6;
-  resize: none;
-  outline: none;
-  overflow-y: auto;
-}
-
-.memory-notes-textarea:focus {
-  background: var(--bg-card);
-}
-
-.memory-notes-actions {
+.memory-note-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-color);
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--bg-gradient-secondary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
-.btn-save-note {
+.btn-back {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.btn-back:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.memory-note-title {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-save {
   background: var(--accent-primary);
   border: none;
   border-radius: 6px;
@@ -708,21 +719,61 @@ body.theme-light .status.disconnected {
   color: #fff;
   cursor: pointer;
   transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
-.btn-save-note:hover:not(:disabled) {
+.btn-save:hover:not(:disabled) {
   background: var(--accent-hover);
   transform: translateY(-1px);
 }
 
-.btn-save-note:disabled {
+.btn-save:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.note-saved-hint {
-  font-size: 0.85rem;
-  color: var(--success);
+.memory-note-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.memory-note-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.memory-note-error {
+  padding: 16px;
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.memory-note-textarea {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border: none;
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  resize: none;
+  outline: none;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.memory-note-textarea:focus {
+  background: var(--bg-card);
 }
 
 .graph-container {
@@ -756,6 +807,25 @@ body.theme-light .graph-header {
 .graph-stats {
   font-size: 0.8rem;
   color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-refresh-tree {
+  background: transparent;
+  border: none;
+  padding: 2px 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.btn-refresh-tree:hover {
+  background: var(--bg-hover);
+  transform: rotate(180deg);
 }
 
 .memory-graph-svg {
