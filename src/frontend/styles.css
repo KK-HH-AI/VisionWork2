@@ -351,9 +351,9 @@ body.theme-light .status.disconnected {
 }
 
 .tree-children {
-  margin-left: 6px;
-  border-left: 1px solid rgba(255, 255, 255, 0.05);
-  padding-left: 4px;
+  margin-left: 0;
+  border-left: none;
+  padding-left: 0;
 }
 
 .error-message {
