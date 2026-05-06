@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-electron/
+.env
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.vite/
+workspace/

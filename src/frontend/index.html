@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VisionWork2</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="./main.jsx"></script>
+  <script>
+    (function() {
+      try {
+        const savedTheme = localStorage.getItem('visionwork2_theme');
+        document.body.className = savedTheme === 'light' ? 'theme-light' : 'theme-dark';
+      } catch (e) {
+        document.body.className = 'theme-dark';
+      }
+    })();
+  </script>
+</body>
+</html>
