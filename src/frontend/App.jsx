@@ -759,7 +759,6 @@ function App() {
           <div key={item.path} className="tree-item">
             <div
               className="tree-item-header tree-dir"
-              style={{ paddingLeft: `${depth * 16 + 8}px` }}
               onClick={() => toggleDir(item.path)}
             >
               <span className="tree-icon">{isExpanded ? '📂' : '📁'}</span>
@@ -777,7 +776,6 @@ function App() {
           <div
             key={item.path}
             className="tree-item tree-file"
-            style={{ paddingLeft: `${depth * 16 + 8}px` }}
             onClick={() => handleMemoryNoteClick(item)}
           >
             <span className="tree-icon">📝</span>
