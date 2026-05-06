@@ -186,10 +186,10 @@ def _build_dir_tree(base_path):
 
 
 @app.get("/get-workspace-tree")
-async def get_workspace_tree(folder_path: str = Query(...)):
+async def get_workspace_tree():
     try:
-        # 读取项目根目录下的 workspace/ 文件夹
-        workspace_dir = os.path.join(folder_path, 'workspace')
+        # 固定读取项目根目录下的 workspace/ 文件夹
+        workspace_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'workspace')
         if not os.path.exists(workspace_dir):
             return JSONResponse({"success": True, "workspace_dir": workspace_dir, "tree": []})
         tree = _build_dir_tree(workspace_dir)

@@ -711,15 +711,14 @@ function App() {
     }
   };
 
-  const loadMemoryDirByPath = async (folderPath) => {
-    if (!folderPath) return;
+  const loadMemoryDirByPath = async () => {
     try {
       const port = backendPortRef.current;
       const token = new URLSearchParams(window.location.search).get('token') || '';
-      const response = await fetch(`http://127.0.0.1:${port}/get-workspace-tree?folder_path=${encodeURIComponent(folderPath)}&token=${token}`);
+      const response = await fetch(`http://127.0.0.1:${port}/get-workspace-tree?token=${token}`);
       const data = await response.json();
       if (data.success) {
-        setMemoryDir(data.memory_dir);
+        setMemoryDir(data.workspace_dir);
         setWorkspaceTree(data.tree);
       }
     } catch (e) {
@@ -728,11 +727,8 @@ function App() {
   };
 
   useEffect(() => {
-    const path = window.electronAPI ? currentPath : manualPath;
-    if (path) {
-      loadMemoryDirByPath(path);
-    }
-  }, [currentPath, manualPath]);
+    loadMemoryDirByPath();
+  }, []);
 
   const toggleDir = (path) => {
     setExpandedDirs(prev => ({
