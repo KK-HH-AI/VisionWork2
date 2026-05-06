@@ -727,8 +727,10 @@ function App() {
   };
 
   useEffect(() => {
-    loadMemoryDirByPath();
-  }, []);
+    if (connected) {
+      loadMemoryDirByPath();
+    }
+  }, [connected]);
 
   const toggleDir = (path) => {
     setExpandedDirs(prev => ({
