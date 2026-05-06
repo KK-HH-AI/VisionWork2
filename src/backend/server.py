@@ -132,6 +132,26 @@ async def list_memory_dir(memory_dir: str = Query(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/get-memory-dir")
+async def get_memory_dir(folder_path: str = Query(...)):
+    try:
+        memory_dir = _get_memory_dir(folder_path)
+        if not os.path.exists(memory_dir):
+            return JSONResponse({"success": True, "memory_dir": memory_dir, "files": []})
+        files = []
+        for filename in sorted(os.listdir(memory_dir)):
+            filepath = os.path.join(memory_dir, filename)
+            if os.path.isfile(filepath):
+                files.append({
+                    "name": filename,
+                    "path": filepath,
+                    "size": os.path.getsize(filepath),
+                })
+        return JSONResponse({"success": True, "memory_dir": memory_dir, "files": files})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     token = websocket.query_params.get("token")
@@ -599,9 +619,10 @@ def first_pass_reader_node(state: AnalysisState) -> AnalysisState:
 
     graph_node = {
         "id": node_id,
-        "label": filename,
+        "label": note_filename,
         "group": group,
-        "path": filepath,
+        "path": note_path,
+        "source_file": filepath,
     }
     state["graph_nodes"].append(graph_node)
 

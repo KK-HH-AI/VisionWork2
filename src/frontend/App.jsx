@@ -203,7 +203,15 @@ function MemoryGraph({ nodes, edges, retrievalPath, theme, onNodeClick }) {
       .attr('stroke-width', 1.5);
 
     nodeGroup.append('text')
-      .text(d => d.label)
+      .text(d => {
+        const label = d.label || '';
+        if (d.path && d.path.endsWith('.md')) {
+          const parts = d.path.split(/[\\/]/);
+          const filename = parts[parts.length - 1];
+          return filename.replace(/\.md$/, '');
+        }
+        return label;
+      })
       .attr('x', 10)
       .attr('y', 3)
       .attr('fill', theme === 'dark' ? '#c0c0c0' : '#495057')
@@ -576,7 +584,7 @@ function App() {
   const [memoryNoteError, setMemoryNoteError] = useState('');
   const [memoryNoteSaved, setMemoryNoteSaved] = useState(false);
   const [showMemoryNotes, setShowMemoryNotes] = useState(false);
-  const [showMemoryDirTree, setShowMemoryDirTree] = useState(false);
+  const [showMemoryDirTree, setShowMemoryDirTree] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [currentTask, setCurrentTask] = useState('');
@@ -700,6 +708,29 @@ function App() {
       console.error('Failed to load memory directory:', e);
     }
   };
+
+  const loadMemoryDirByPath = async (folderPath) => {
+    if (!folderPath) return;
+    try {
+      const port = backendPortRef.current;
+      const token = new URLSearchParams(window.location.search).get('token') || '';
+      const response = await fetch(`http://127.0.0.1:${port}/get-memory-dir?folder_path=${encodeURIComponent(folderPath)}&token=${token}`);
+      const data = await response.json();
+      if (data.success) {
+        setMemoryDir(data.memory_dir);
+        setMemoryNotes(data.files);
+      }
+    } catch (e) {
+      console.error('Failed to load memory directory by path:', e);
+    }
+  };
+
+  useEffect(() => {
+    const path = window.electronAPI ? currentPath : manualPath;
+    if (path) {
+      loadMemoryDirByPath(path);
+    }
+  }, [currentPath, manualPath]);
 
   const handleMemoryNoteClick = async (note) => {
     setSelectedMemoryNote(note);
@@ -1384,48 +1415,65 @@ function App() {
           {!showMemoryNotes ? (
             <div className="graph-container">
               <div className="graph-header">
-                <span className="graph-title">记忆图谱</span>
+                <span className="graph-title">记忆笔记</span>
                 <span className="graph-stats">
-                  {graphNodes.length > 0
-                    ? `${graphNodes.length} 个节点${analysisComplete ? ' · 分析完成' : ''}`
+                  {memoryNotes.length > 0
+                    ? `${memoryNotes.length} 个笔记`
                     : '等待分析开始...'}
-                  {retrievalPath.length > 0 && (
-                    <span className="path-indicator" title="检索路径">
-                      {' · '}🔗 {retrievalPath.length} 步检索
-                      <button
-                        className="btn-clear-path"
-                        onClick={() => setRetrievalPath([])}
-                        title="清除检索路径"
-                      >✕</button>
+                  {memoryDir && (
+                    <span className="memory-dir-path" title={memoryDir}>
+                      📁 {currentPath ? currentPath.split(/[\\/]/).pop() : '当前项目'}
                     </span>
                   )}
                 </span>
               </div>
-              {memoryDir && memoryNotes.length > 0 && (
-                <div className="memory-notes-tree-header">
+              {graphNodes.length > 0 && (
+                <div className="memory-view-toggle">
                   <button
-                    className="btn-toggle-notes"
-                    onClick={() => setShowMemoryDirTree(!showMemoryDirTree)}
+                    className={`btn-view-toggle ${!showMemoryDirTree ? 'active' : ''}`}
+                    onClick={() => setShowMemoryDirTree(false)}
                   >
-                    {showMemoryDirTree ? '📝 隐藏笔记' : '📝 查看笔记'}
+                    📊 图谱视图
+                  </button>
+                  <button
+                    className={`btn-view-toggle ${showMemoryDirTree ? 'active' : ''}`}
+                    onClick={() => setShowMemoryDirTree(true)}
+                  >
+                    📝 列表视图
                   </button>
                 </div>
               )}
               {showMemoryDirTree ? (
                 <div className="memory-notes-tree">
-                  {memoryNotes.map((note, index) => (
-                    <div
-                      key={index}
-                      className="memory-note-item"
-                      onClick={() => handleMemoryNoteClick(note)}
-                    >
-                      <span className="memory-note-icon">📝</span>
-                      <span className="memory-note-name" title={note.name}>{note.name}</span>
+                  {memoryNotes.length > 0 ? (
+                    memoryNotes.map((note, index) => (
+                      <div
+                        key={index}
+                        className="memory-note-item"
+                        onClick={() => handleMemoryNoteClick(note)}
+                      >
+                        <span className="memory-note-icon">📝</span>
+                        <span className="memory-note-name" title={note.name}>{note.name}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="memory-notes-empty">
+                      <div className="empty-icon">📝</div>
+                      <p>暂无笔记</p>
+                      <p className="empty-hint">选择项目文件夹并开始分析后，智能体会自动生成笔记</p>
                     </div>
-                  ))}
+                  )}
                 </div>
               ) : (
-                <MemoryGraph nodes={graphNodes} edges={graphEdges} retrievalPath={retrievalPath} theme={theme} onNodeClick={handleMemoryNodeClick} />
+                graphNodes.length > 0 ? (
+                  <MemoryGraph nodes={graphNodes} edges={graphEdges} retrievalPath={retrievalPath} theme={theme} onNodeClick={handleMemoryNodeClick} />
+                ) : (
+                  <div className="memory-notes-empty">
+                    <div className="empty-icon">📊</div>
+                    <p>暂无图谱</p>
+                    <p className="empty-hint">分析完成后可以查看图谱视图</p>
+                  </div>
+                )
               )}
             </div>
           ) : (
