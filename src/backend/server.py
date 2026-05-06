@@ -188,11 +188,12 @@ def _build_dir_tree(base_path):
 @app.get("/get-workspace-tree")
 async def get_workspace_tree(folder_path: str = Query(...)):
     try:
-        # 直接使用用户选择的文件夹，而不是memory目录
-        if not os.path.exists(folder_path):
-            return JSONResponse({"success": True, "workspace_dir": folder_path, "tree": []})
-        tree = _build_dir_tree(folder_path)
-        return JSONResponse({"success": True, "workspace_dir": folder_path, "tree": tree})
+        # 读取项目根目录下的 workspace/ 文件夹
+        workspace_dir = os.path.join(folder_path, 'workspace')
+        if not os.path.exists(workspace_dir):
+            return JSONResponse({"success": True, "workspace_dir": workspace_dir, "tree": []})
+        tree = _build_dir_tree(workspace_dir)
+        return JSONResponse({"success": True, "workspace_dir": workspace_dir, "tree": tree})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
