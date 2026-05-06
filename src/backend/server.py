@@ -152,6 +152,51 @@ async def get_memory_dir(folder_path: str = Query(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _build_dir_tree(base_path):
+    """递归构建目录树结构"""
+    if not os.path.exists(base_path):
+        return []
+    
+    tree = []
+    try:
+        entries = sorted(os.listdir(base_path))
+        for entry in entries:
+            # 跳过隐藏文件和常见不需要扫描的目录
+            if entry.startswith('.'):
+                continue
+            full_path = os.path.join(base_path, entry)
+            if os.path.isdir(full_path):
+                children = _build_dir_tree(full_path)
+                tree.append({
+                    "name": entry,
+                    "path": full_path,
+                    "type": "directory",
+                    "children": children,
+                })
+            elif entry.endswith('.md'):
+                tree.append({
+                    "name": entry,
+                    "path": full_path,
+                    "type": "file",
+                    "size": os.path.getsize(full_path),
+                })
+    except Exception:
+        pass
+    return tree
+
+
+@app.get("/get-workspace-tree")
+async def get_workspace_tree(folder_path: str = Query(...)):
+    try:
+        # 直接使用用户选择的文件夹，而不是memory目录
+        if not os.path.exists(folder_path):
+            return JSONResponse({"success": True, "workspace_dir": folder_path, "tree": []})
+        tree = _build_dir_tree(folder_path)
+        return JSONResponse({"success": True, "workspace_dir": folder_path, "tree": tree})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     token = websocket.query_params.get("token")
