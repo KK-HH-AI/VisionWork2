@@ -1,59 +1,23 @@
-import sys
 import os
 import json
-import argparse
-import asyncio
-import hashlib
-import threading
 import queue
+import asyncio
+import threading
 from pathlib import Path
-from typing import TypedDict, List, Optional
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.websockets import WebSocketState
-from fastapi.responses import JSONResponse
-import uvicorn
+from typing import TypedDict, List
 
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 
-app = FastAPI()
+from ..core.config import WORKSPACE_ROOT
+from ..core.prompts import ANALYSIS_PROMPT, SECOND_PASS_PROMPT
+from ..utils.file_utils import read_file_content
+from ..utils.graph_utils import generate_node_id, get_memory_dir
+from ..services.scanner import build_file_queue
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-active_connections = []
-valid_token = None
 should_stop = {}
-
-WORKSPACE_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'workspace')
-
-TEXT_EXTENSIONS = {
-    '.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.cpp', '.c', '.h', '.hpp',
-    '.html', '.css', '.scss', '.less', '.json', '.yaml', '.yml', '.xml',
-    '.md', '.txt', '.csv', '.sh', '.bat', '.ps1', '.sql', '.r', '.rb',
-    '.go', '.rs', '.swift', '.kt', '.scala', '.php', '.lua', '.pl',
-    '.toml', '.ini', '.cfg', '.env', '.gitignore', '.dockerfile',
-    '.vue', '.svelte', '.astro', '.graphql', '.proto',
-}
-
-BINARY_EXTENSIONS = {
-    '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.bmp', '.webp',
-    '.mp3', '.wav', '.mp4', '.avi', '.mov', '.webm',
-    '.zip', '.tar', '.gz', '.rar', '.7z',
-    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-    '.exe', '.dll', '.so', '.dylib', '.bin',
-    '.ttf', '.otf', '.woff', '.woff2', '.eot',
-    '.pyc', '.pyo', '.class', '.o', '.obj',
-}
-
-MAX_FILE_SIZE = 200 * 1024
 
 
 class AnalysisState(TypedDict):
@@ -70,452 +34,14 @@ class AnalysisState(TypedDict):
     total_files: int
     memory_dir: str
     progress_queue: object
+    stop_flag: str
     retrieval_path: List[str]
-
-
-@app.get("/read-file")
-async def read_file(path: str = Query(...)):
-    try:
-        if not os.path.exists(path):
-            raise HTTPException(status_code=404, detail="文件不存在")
-        if not os.path.isfile(path):
-            raise HTTPException(status_code=400, detail="路径不是文件")
-        file_size = os.path.getsize(path)
-        if file_size > 5 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="文件过大（超过5MB）")
-        content = _read_file_content(path)
-        if content is None:
-            raise HTTPException(status_code=415, detail="无法读取文件编码")
-        return JSONResponse({"success": True, "content": content, "size": file_size})
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/save-file")
-async def save_file(request: dict):
-    try:
-        path = request.get("path")
-        content = request.get("content")
-        if not path:
-            raise HTTPException(status_code=400, detail="缺少文件路径")
-        if content is None:
-            raise HTTPException(status_code=400, detail="缺少文件内容")
-        if not os.path.exists(os.path.dirname(path)):
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        return JSONResponse({"success": True, "message": "文件保存成功"})
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/list-memory-dir")
-async def list_memory_dir(memory_dir: str = Query(...)):
-    try:
-        if not os.path.exists(memory_dir):
-            return JSONResponse({"success": True, "files": []})
-        files = []
-        for filename in sorted(os.listdir(memory_dir)):
-            filepath = os.path.join(memory_dir, filename)
-            if os.path.isfile(filepath):
-                files.append({
-                    "name": filename,
-                    "path": filepath,
-                    "size": os.path.getsize(filepath),
-                })
-        return JSONResponse({"success": True, "files": files})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/get-memory-dir")
-async def get_memory_dir(folder_path: str = Query(...)):
-    try:
-        memory_dir = _get_memory_dir(folder_path)
-        if not os.path.exists(memory_dir):
-            return JSONResponse({"success": True, "memory_dir": memory_dir, "files": []})
-        files = []
-        for filename in sorted(os.listdir(memory_dir)):
-            filepath = os.path.join(memory_dir, filename)
-            if os.path.isfile(filepath):
-                files.append({
-                    "name": filename,
-                    "path": filepath,
-                    "size": os.path.getsize(filepath),
-                })
-        return JSONResponse({"success": True, "memory_dir": memory_dir, "files": files})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-def _build_dir_tree(base_path):
-    """递归构建目录树结构"""
-    if not os.path.exists(base_path):
-        return []
-    
-    tree = []
-    try:
-        entries = sorted(os.listdir(base_path))
-        for entry in entries:
-            # 跳过隐藏文件和常见不需要扫描的目录
-            if entry.startswith('.'):
-                continue
-            full_path = os.path.join(base_path, entry)
-            if os.path.isdir(full_path):
-                children = _build_dir_tree(full_path)
-                tree.append({
-                    "name": entry,
-                    "path": full_path,
-                    "type": "directory",
-                    "children": children,
-                })
-            elif entry.endswith('.md'):
-                tree.append({
-                    "name": entry,
-                    "path": full_path,
-                    "type": "file",
-                    "size": os.path.getsize(full_path),
-                })
-    except Exception:
-        pass
-    return tree
-
-
-@app.get("/get-workspace-tree")
-async def get_workspace_tree():
-    try:
-        # 固定读取项目根目录下的 workspace/ 文件夹
-        workspace_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'workspace')
-        if not os.path.exists(workspace_dir):
-            return JSONResponse({"success": True, "workspace_dir": workspace_dir, "tree": []})
-        tree = _build_dir_tree(workspace_dir)
-        return JSONResponse({"success": True, "workspace_dir": workspace_dir, "tree": tree})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    token = websocket.query_params.get("token")
-    if token != valid_token:
-        await websocket.close(code=1008, reason="Invalid token")
-        return
-
-    await websocket.accept()
-    websocket.max_size = 10 * 1024 * 1024
-    active_connections.append(websocket)
-
-    analysis_task = None
-    try:
-        while True:
-            data = await websocket.receive_text()
-            message = json.loads(data)
-
-            if message.get("type") == "scan_directory":
-                folder_path = message.get("path")
-                if not folder_path:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "No path provided"
-                    })
-                    continue
-
-                try:
-                    tree = build_directory_tree(folder_path)
-                    await websocket.send_json({
-                        "type": "directory_tree",
-                        "path": folder_path,
-                        "tree": tree
-                    })
-                except Exception as e:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": str(e)
-                    })
-
-            elif message.get("type") == "simulate_analysis":
-                folder_path = message.get("path")
-                if not folder_path:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "No path provided"
-                    })
-                    continue
-
-                try:
-                    await run_simulated_analysis(websocket, folder_path)
-                except Exception as e:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": str(e)
-                    })
-
-            elif message.get("type") == "start_analysis":
-                folder_path = message.get("path")
-                profession = message.get("profession", "软件工程师")
-                api_url = message.get("api_url", "")
-                api_key = message.get("api_key", "")
-                model_name = message.get("model_name", "gpt-3.5-turbo")
-                stop_flag = message.get("stop_flag", "")
-
-                if not folder_path:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "No path provided"
-                    })
-                    continue
-
-                if not api_url or not api_key:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "API URL and API Key are required"
-                    })
-                    continue
-
-                print(f"[Backend] Starting analysis task with stop_flag: {stop_flag}")
-                analysis_task = asyncio.create_task(
-                    run_llm_analysis(
-                        websocket, folder_path, profession,
-                        api_url, api_key, model_name, stop_flag
-                    )
-                )
-
-            elif message.get("type") == "stop_analysis":
-                stop_flag = message.get("stop_flag", "")
-                print(f"[Backend] Received stop_analysis request, stop_flag: {stop_flag}")
-                if stop_flag:
-                    should_stop[stop_flag] = True
-                    print(f"[Backend] Set should_stop[{stop_flag}] = True")
-                    print(f"[Backend] Current should_stop dict: {should_stop}")
-                    await websocket.send_json({
-                        "type": "stopped"
-                    })
-                else:
-                    print(f"[Backend] ERROR: No stop_flag in stop_analysis request")
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "No stop_flag provided"
-                    })
-
-            elif message.get("type") == "ping":
-                await websocket.send_json({"type": "pong"})
-
-    except WebSocketDisconnect:
-        if analysis_task and not analysis_task.done():
-            analysis_task.cancel()
-        if websocket in active_connections:
-            active_connections.remove(websocket)
-
-
-def build_directory_tree(root_path: str) -> dict:
-    root = Path(root_path)
-    if not root.exists():
-        raise FileNotFoundError(f"Path not found: {root_path}")
-    if not root.is_dir():
-        raise NotADirectoryError(f"Not a directory: {root_path}")
-
-    return _scan_directory(root)
-
-
-def _scan_directory(path: Path) -> dict:
-    node = {
-        "name": path.name,
-        "path": str(path),
-        "type": "directory",
-        "children": []
-    }
-
-    try:
-        entries = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
-        for entry in entries:
-            if entry.name.startswith('.'):
-                continue
-            if entry.is_dir():
-                node["children"].append(_scan_directory(entry))
-            else:
-                node["children"].append({
-                    "name": entry.name,
-                    "path": str(entry),
-                    "type": "file"
-                })
-    except PermissionError:
-        node["children"].append({
-            "name": "[Permission Denied]",
-            "path": "",
-            "type": "file"
-        })
-
-    return node
-
-
-def _collect_files(node, files_list=None):
-    if files_list is None:
-        files_list = []
-    if node.get("type") == "file":
-        files_list.append(node)
-    for child in node.get("children", []):
-        _collect_files(child, files_list)
-    return files_list
-
-
-def _get_project_name(folder_path):
-    return Path(folder_path).name
-
-
-def _get_memory_dir(folder_path):
-    project_name = _get_project_name(folder_path)
-    return os.path.join(WORKSPACE_ROOT, project_name, 'memory')
-
-
-def _generate_node_id(file_path, folder_path):
-    rel_path = os.path.relpath(file_path, folder_path)
-    return hashlib.md5(rel_path.encode()).hexdigest()[:12]
-
-
-def _get_file_group(filename):
-    ext = filename.split('.')[-1].lower() if '.' in filename else ''
-    groups = {
-        'py': 'python', 'js': 'javascript', 'jsx': 'react', 'ts': 'typescript',
-        'tsx': 'react', 'java': 'java', 'cpp': 'cpp', 'c': 'c', 'h': 'c',
-        'html': 'web', 'css': 'web', 'scss': 'web', 'less': 'web',
-        'json': 'config', 'yaml': 'config', 'yml': 'config', 'xml': 'config',
-        'md': 'doc', 'txt': 'doc', 'csv': 'data',
-        'png': 'image', 'jpg': 'image', 'jpeg': 'image', 'gif': 'image', 'svg': 'image',
-    }
-    return groups.get(ext, 'other')
-
-
-def _is_text_file(filepath):
-    ext = Path(filepath).suffix.lower()
-    if ext in BINARY_EXTENSIONS:
-        return False
-    if ext in TEXT_EXTENSIONS:
-        return True
-    return False
-
-
-def _read_file_content(filepath, max_size=MAX_FILE_SIZE):
-    file_size = os.path.getsize(filepath)
-    if file_size > max_size:
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read(max_size)
-        return content + f"\n\n... (文件过大，已截断，原始大小: {file_size} bytes)"
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return f.read()
-    except UnicodeDecodeError:
-        try:
-            with open(filepath, 'r', encoding='gbk') as f:
-                return f.read()
-        except Exception:
-            return None
-
-
-ANALYSIS_PROMPT = """你是一位{profession}。请分析以下代码文件，并生成结构化的分析笔记。
-
-文件名：{filename}
-文件路径：{filepath}
-
-代码内容：
-```
-{code_content}
-```
-
-请按以下结构生成分析笔记（使用Markdown格式）：
-
-## 模块概述
-简要描述该文件/模块的整体功能和职责。
-
-## 核心组件
-列出关键的函数、类、接口及其作用。
-
-## 依赖关系
-分析该模块依赖的其他模块或外部库。
-
-## 注意事项
-指出代码中值得关注的设计模式、潜在问题或改进建议。
-"""
-
-SECOND_PASS_PROMPT = """你是一位{profession}。请基于以下代码项目的分析笔记，生成一个分析图指令序列。
-
-## 项目笔记摘要
-{notes_summary}
-
-## 要求
-请生成一个JSON数组，每个元素是一个画布指令。严格按照以下格式输出，只输出JSON数组，不要包含任何其他文字、解释或markdown标记。
-
-支持的指令类型：
-
-1. add_node: 添加节点
-   {{"cmd": "add_node", "id": "唯一ID(英文)", "label": "节点标签(中文)", "type": "节点类型", "group": "分组", "description": "简要描述", "codeRef": [{{"file": "文件路径", "lines": [起始行, 结束行]}}]}}
-   type可选值: module, function, class, data, config, interface, service, component
-   group可选值: python, javascript, react, typescript, java, cpp, c, web, config, doc, data, image, other
-   codeRef为可选字段，列出该节点关联的源代码文件及其行号范围。如果从笔记中能确定具体文件，请填写相对路径；如果不确定，可省略此字段。
-
-2. add_edge: 添加连线
-   {{"cmd": "add_edge", "source": "源节点ID", "target": "目标节点ID", "label": "关系描述(中文)"}}
-
-3. layout: 自动布局
-   {{"cmd": "layout", "algorithm": "dagre"}}
-
-请根据你的职业视角({profession})，生成有意义的分析图：
-- 后端开发工程师：生成模块调用关系图，展示各模块之间的依赖和调用关系
-- 前端开发工程师：生成组件树和状态流转图
-- 产品经理：生成功能结构图，展示功能模块的层次关系
-- 架构师：生成系统架构图，展示系统分层和组件关系
-- 数据分析师：生成数据流图，展示数据处理流程
-
-注意：
-- 节点数量控制在10-25个之间，选择最重要的模块/组件
-- 边要体现模块间的真实关系（调用、依赖、数据流等）
-- 最后一条指令必须是 layout
-- 只输出JSON数组，不要包含```json```等标记"""
-
-
-IGNORE_DIRS = {
-    'node_modules', '.git', '__pycache__', 'dist', 'dist-electron',
-    '.venv', 'venv', 'workspace', '.vite', 'build', 'target',
-    '.next', '.nuxt', 'coverage', '.tox', '.eggs',
-}
-
-IGNORE_FILE_PATTERNS = {
-    'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
-    'poetry.lock', 'Pipfile.lock',
-}
-
-
-def _build_file_queue(folder_path):
-    tree = build_directory_tree(folder_path)
-    all_files = _collect_files(tree)
-    queue = []
-    for f in all_files:
-        filepath = f["path"]
-        if not os.path.isfile(filepath):
-            continue
-        filename = f["name"]
-        if filename in IGNORE_FILE_PATTERNS:
-            continue
-        path_parts = Path(filepath).parts
-        if any(part in IGNORE_DIRS for part in path_parts):
-            continue
-        if not _is_text_file(filepath):
-            continue
-        queue.append({
-            "name": filename,
-            "path": filepath,
-            "group": _get_file_group(filename),
-        })
-    return queue
 
 
 def index_files_node(state: AnalysisState) -> AnalysisState:
     folder_path = state["folder_path"]
-    file_queue = _build_file_queue(folder_path)
-    memory_dir = _get_memory_dir(folder_path)
+    file_queue = build_file_queue(folder_path)
+    memory_dir = get_memory_dir(folder_path, WORKSPACE_ROOT)
     os.makedirs(memory_dir, exist_ok=True)
 
     state["file_queue"] = file_queue
@@ -584,7 +110,7 @@ def first_pass_reader_node(state: AnalysisState) -> AnalysisState:
         except Exception:
             pass
 
-    code_content = _read_file_content(filepath)
+    code_content = read_file_content(filepath)
     if code_content is None:
         state["current_index"] = current_index + 1
         if progress_queue is not None:
@@ -599,7 +125,7 @@ def first_pass_reader_node(state: AnalysisState) -> AnalysisState:
                 pass
         return state
 
-    node_id = _generate_node_id(filepath, folder_path)
+    node_id = generate_node_id(filepath, folder_path)
 
     try:
         llm = ChatOpenAI(
@@ -713,12 +239,10 @@ def _extract_json_objects(buffer):
         start = buffer.find('{')
         if start == -1:
             break
-
         depth = 0
         in_string = False
         escape = False
         end = -1
-
         for i in range(start, len(buffer)):
             c = buffer[i]
             if escape:
@@ -738,19 +262,15 @@ def _extract_json_objects(buffer):
                     if depth == 0:
                         end = i
                         break
-
         if end == -1:
             break
-
         json_str = buffer[start:end + 1]
         try:
             cmd = json.loads(json_str)
             commands.append(cmd)
         except json.JSONDecodeError:
             pass
-
         buffer = buffer[end + 1:]
-
     return commands, buffer
 
 
@@ -1123,100 +643,3 @@ async def run_llm_analysis(websocket, folder_path, profession, api_url, api_key,
             })
         except RuntimeError:
             pass
-
-
-async def run_simulated_analysis(websocket, folder_path):
-    memory_dir = _get_memory_dir(folder_path)
-    os.makedirs(memory_dir, exist_ok=True)
-
-    test_files = [
-        {"name": "server.py", "group": "python"},
-        {"name": "App.jsx", "group": "react"},
-        {"name": "main.js", "group": "javascript"},
-        {"name": "styles.css", "group": "web"},
-        {"name": "config.json", "group": "config"},
-        {"name": "README.md", "group": "doc"},
-        {"name": "utils.ts", "group": "typescript"},
-        {"name": "index.html", "group": "web"},
-        {"name": "data.csv", "group": "data"},
-        {"name": "logo.png", "group": "image"},
-        {"name": "main.cpp", "group": "cpp"},
-        {"name": "notes.txt", "group": "doc"},
-    ]
-
-    nodes = []
-    batch_size = 2
-    for i, file_info in enumerate(test_files):
-        filename = file_info["name"]
-        group = file_info["group"]
-        node_id = hashlib.md5(filename.encode()).hexdigest()[:12]
-
-        note_filename = f"{Path(filename).stem}_{node_id}.md"
-        note_path = os.path.join(memory_dir, note_filename)
-        note_content = f"# {filename}\n\n这是文件 {filename} 的模拟摘要。\n\n- 类型: {group}\n"
-        with open(note_path, 'w', encoding='utf-8') as f:
-            f.write(note_content)
-
-        nodes.append({
-            "id": node_id,
-            "label": filename,
-            "group": group,
-            "path": f"{folder_path}/{filename}"
-        })
-
-        if (i + 1) % batch_size == 0 or (i + 1) == len(test_files):
-            try:
-                await websocket.send_json({
-                    "type": "memory_graph",
-                    "nodes": list(nodes),
-                    "edges": [],
-                    "memory_dir": memory_dir,
-                })
-            except RuntimeError:
-                return
-
-        await asyncio.sleep(0.3)
-
-    try:
-        await websocket.send_json({
-            "type": "analysis_complete",
-            "total_files": len(test_files),
-            "memory_dir": memory_dir
-        })
-    except RuntimeError:
-        pass
-
-    node_ids = [n["id"] for n in nodes]
-    if len(node_ids) >= 4:
-        simulated_paths = [
-            node_ids[:3],
-            node_ids[:5],
-            node_ids[:7],
-            node_ids[:9],
-        ]
-        for path in simulated_paths:
-            await asyncio.sleep(0.8)
-            try:
-                await websocket.send_json({
-                    "type": "memory_path_update",
-                    "nodeIds": path,
-                })
-            except RuntimeError:
-                return
-
-
-def main():
-    global valid_token
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, required=True)
-    parser.add_argument("--token", type=str, required=True)
-    args = parser.parse_args()
-
-    valid_token = args.token
-    print(f"Backend starting on port {args.port}", flush=True)
-
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
-
-
-if __name__ == "__main__":
-    main()
