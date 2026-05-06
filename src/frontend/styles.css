@@ -178,15 +178,14 @@ body.theme-light .status.disconnected {
 }
 
 .sidebar {
-  width: 340px;
-  min-width: 300px;
-  max-width: 400px;
+  width: var(--sidebar-width, 340px);
+  min-width: 250px;
+  max-width: 500px;
   background: var(--bg-gradient-secondary);
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width 0.1s ease;
 }
 
 .resize-handle {
@@ -406,14 +405,13 @@ body.theme-light .status.disconnected {
 }
 
 .memory-panel {
-  width: 340px;
-  min-width: 280px;
-  max-width: 400px;
+  width: var(--memory-panel-width, 340px);
+  min-width: 250px;
+  max-width: 500px;
   background: var(--bg-gradient-secondary);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width 0.1s ease;
 }
 
 .graph-container {

@@ -640,15 +640,10 @@ function App() {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
-  const handleMouseDown = useCallback((panel) => {
-    isDraggingRef.current = panel;
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  }, []);
+  const handleMouseMoveRef = useRef(null);
+  const handleMouseUpRef = useRef(null);
 
-  const handleMouseMove = useCallback((e) => {
+  handleMouseMoveRef.current = (e) => {
     if (!isDraggingRef.current) return;
     if (isDraggingRef.current === 'left') {
       const newWidth = Math.max(250, Math.min(500, e.clientX));
@@ -657,15 +652,23 @@ function App() {
       const newWidth = Math.max(250, Math.min(500, window.innerWidth - e.clientX));
       setMemoryPanelWidth(newWidth);
     }
-  }, []);
+  };
 
-  const handleMouseUp = useCallback(() => {
+  handleMouseUpRef.current = () => {
     isDraggingRef.current = false;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
+    document.removeEventListener('mousemove', handleMouseMoveRef.current);
+    document.removeEventListener('mouseup', handleMouseUpRef.current);
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
-  }, [handleMouseMove]);
+  };
+
+  const handleMouseDown = useCallback((panel) => {
+    isDraggingRef.current = panel;
+    document.addEventListener('mousemove', handleMouseMoveRef.current);
+    document.addEventListener('mouseup', handleMouseUpRef.current);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
 
   useEffect(() => {
     try {
@@ -1007,8 +1010,8 @@ function App() {
         </div>
       </header>
 
-      <div className="main-content">
-        <aside className="sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth, maxWidth: sidebarWidth }}>
+      <div className="main-content" style={{ '--sidebar-width': sidebarWidth + 'px', '--memory-panel-width': memoryPanelWidth + 'px' }}>
+        <aside className="sidebar">
           <div className="sidebar-header">
             <h2>项目目录</h2>
             <button className="btn-select" onClick={handleSelectFolder}>
@@ -1274,7 +1277,7 @@ function App() {
           onMouseDown={() => handleMouseDown('right')}
         />
 
-        <aside className="memory-panel" style={{ width: memoryPanelWidth, minWidth: memoryPanelWidth, maxWidth: memoryPanelWidth }}>
+        <aside className="memory-panel">
           <div className="graph-container">
             <div className="graph-header">
               <span className="graph-title">记忆图谱</span>
