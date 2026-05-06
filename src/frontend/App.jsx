@@ -9,7 +9,6 @@ import ReactFlow, {
   applyEdgeChanges,
   Background,
   Controls,
-  MiniMap,
   MarkerType,
   ReactFlowProvider,
 } from 'reactflow';
@@ -113,7 +112,7 @@ const NODE_TYPE_COLORS = {
   'component': '#9C27B0',
 };
 
-function MemoryGraph({ nodes, edges, retrievalPath }) {
+function MemoryGraph({ nodes, edges, retrievalPath, theme }) {
   const svgRef = useRef(null);
   const simulationRef = useRef(null);
   const pathGroupRef = useRef(null);
@@ -165,7 +164,7 @@ function MemoryGraph({ nodes, edges, retrievalPath }) {
       .selectAll('line')
       .data(edges)
       .join('line')
-      .attr('stroke', 'rgba(255,255,255,0.15)')
+      .attr('stroke', theme === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)')
       .attr('stroke-width', 1);
 
     const nodeGroup = g.append('g')
@@ -192,19 +191,19 @@ function MemoryGraph({ nodes, edges, retrievalPath }) {
     nodeGroup.append('circle')
       .attr('r', 7)
       .attr('fill', d => GROUP_COLORS[d.group] || GROUP_COLORS['other'])
-      .attr('stroke', 'rgba(255,255,255,0.3)')
+      .attr('stroke', theme === 'dark' ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)')
       .attr('stroke-width', 1.5);
 
     nodeGroup.append('text')
       .text(d => d.label)
       .attr('x', 10)
       .attr('y', 3)
-      .attr('fill', '#c0c0c0')
+      .attr('fill', theme === 'dark' ? '#c0c0c0' : '#495057')
       .attr('font-size', '10px')
       .attr('font-family', 'sans-serif');
 
     const pathGroup = g.append('g').attr('class', 'retrieval-path-group');
-    pathGroupRef.current = { g: pathGroup, nodes, simulation };
+    pathGroupRef.current = { g: pathGroup, nodes, simulation, theme };
 
     simulation.on('tick', () => {
       link
@@ -221,7 +220,7 @@ function MemoryGraph({ nodes, edges, retrievalPath }) {
     return () => {
       simulation.stop();
     };
-  }, [nodes, edges]);
+  }, [nodes, edges, theme]);
 
   useEffect(() => {
     updatePathEdges();
@@ -351,7 +350,7 @@ function CustomNode({ data }) {
 
 const nodeTypes = { customNode: CustomNode };
 
-function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSecondPass, onNodeDoubleClick }) {
+function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSecondPass, onNodeDoubleClick, theme }) {
   const commandQueueRef = useRef([]);
   const processingRef = useRef(false);
   const reactFlowInstanceRef = useRef(null);
@@ -516,16 +515,8 @@ function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSecondPass, onNod
         }}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="rgba(255,255,255,0.05)" gap={20} />
+        <Background color={theme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} gap={20} />
         <Controls className="rf-controls" />
-        <MiniMap
-          nodeColor={(node) => {
-            const color = NODE_TYPE_COLORS[node.data?.nodeType] || GROUP_COLORS[node.data?.group] || '#9E9E9E';
-            return color;
-          }}
-          maskColor="rgba(0,0,0,0.6)"
-          style={{ backgroundColor: 'rgba(26, 26, 46, 0.9)' }}
-        />
       </ReactFlow>
     </div>
   );
@@ -567,6 +558,14 @@ function App() {
   const [stopFlag, setStopFlag] = useState('');
   const [isSecondPass, setIsSecondPass] = useState(false);
   const [retrievalPath, setRetrievalPath] = useState([]);
+  const [theme, setTheme] = useState(() => {
+    try {
+      const saved = localStorage.getItem('visionwork2_theme');
+      return saved || 'dark';
+    } catch (e) {
+      return 'dark';
+    }
+  });
 
   const [showConfig, setShowConfig] = useState(false);
   const [manualPath, setManualPath] = useState('d:\\总体\\工作\\在校工作经历\\VisionWork2\\workspace\\VisionWork2');
@@ -619,6 +618,19 @@ function App() {
       console.error('Failed to load config:', e);
     }
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('visionwork2_theme', theme);
+      document.body.className = theme === 'dark' ? 'theme-dark' : 'theme-light';
+    } catch (e) {
+      console.error('Failed to save theme:', e);
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
 
   useEffect(() => {
     try {
@@ -950,8 +962,13 @@ function App() {
     <div className="app-container">
       <header className="header">
         <h1>VisionWork2</h1>
-        <div className={`status ${connected ? 'connected' : 'disconnected'}`}>
-          {connected ? '已连接' : '未连接'}
+        <div className="header-right">
+          <button className="btn-theme-toggle" onClick={toggleTheme} title="切换主题">
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
+          <div className={`status ${connected ? 'connected' : 'disconnected'}`}>
+            {connected ? '已连接' : '未连接'}
+          </div>
         </div>
       </header>
 
@@ -1081,7 +1098,7 @@ function App() {
                     height="100%"
                     language={selectedCodeFile ? getMonacoLanguage(selectedCodeFile.file) : 'plaintext'}
                     value={fileContent}
-                    theme="vs-dark"
+                    theme={theme === 'dark' ? 'vs-dark' : 'vs'}
                     options={{
                       readOnly: true,
                       minimap: { enabled: false },
@@ -1206,6 +1223,7 @@ function App() {
                 setEdges={setCanvasEdgesWrapped}
                 isSecondPass={isSecondPass}
                 onNodeDoubleClick={handleNodeDoubleClick}
+                theme={theme}
               />
             </ReactFlowProvider>
           </div>
@@ -1231,7 +1249,7 @@ function App() {
                 )}
               </span>
             </div>
-            <MemoryGraph nodes={graphNodes} edges={graphEdges} retrievalPath={retrievalPath} />
+            <MemoryGraph nodes={graphNodes} edges={graphEdges} retrievalPath={retrievalPath} theme={theme} />
           </div>
         </aside>
       </div>

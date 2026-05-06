@@ -8,5 +8,15 @@
 <body>
   <div id="root"></div>
   <script type="module" src="./main.jsx"></script>
+  <script>
+    (function() {
+      try {
+        const savedTheme = localStorage.getItem('visionwork2_theme');
+        document.body.className = savedTheme === 'light' ? 'theme-light' : 'theme-dark';
+      } catch (e) {
+        document.body.className = 'theme-dark';
+      }
+    })();
+  </script>
 </body>
 </html>
