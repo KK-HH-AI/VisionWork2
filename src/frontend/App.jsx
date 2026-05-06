@@ -11,6 +11,8 @@ import ReactFlow, {
   Controls,
   MarkerType,
   ReactFlowProvider,
+  Handle,
+  Position,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
@@ -338,12 +340,14 @@ function CustomNode({ data }) {
   const color = NODE_TYPE_COLORS[data.nodeType] || GROUP_COLORS[data.group] || GROUP_COLORS['other'];
   return (
     <div className="rf-custom-node" style={{ borderColor: color }}>
+      <Handle type="target" position={Position.Top} className="rf-handle" />
       <div className="rf-node-header" style={{ backgroundColor: color }}>
         <span className="rf-node-type">{data.nodeType || data.group || 'module'}</span>
       </div>
       <div className="rf-node-body">
         <span className="rf-node-label">{data.label}</span>
       </div>
+      <Handle type="source" position={Position.Bottom} className="rf-handle" />
     </div>
   );
 }
@@ -578,6 +582,10 @@ function App() {
   const [canvasNodes, setCanvasNodes] = useNodesState([]);
   const [canvasEdges, setCanvasEdges] = useEdgesState([]);
 
+  const [sidebarWidth, setSidebarWidth] = useState(340);
+  const [memoryPanelWidth, setMemoryPanelWidth] = useState(340);
+  const isDraggingRef = useRef(false);
+
   const [codeViewNode, setCodeViewNode] = useState(null);
   const [codeFileList, setCodeFileList] = useState([]);
   const [selectedCodeFile, setSelectedCodeFile] = useState(null);
@@ -631,6 +639,33 @@ function App() {
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
+
+  const handleMouseDown = useCallback((panel) => {
+    isDraggingRef.current = panel;
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  const handleMouseMove = useCallback((e) => {
+    if (!isDraggingRef.current) return;
+    if (isDraggingRef.current === 'left') {
+      const newWidth = Math.max(250, Math.min(500, e.clientX));
+      setSidebarWidth(newWidth);
+    } else if (isDraggingRef.current === 'right') {
+      const newWidth = Math.max(250, Math.min(500, window.innerWidth - e.clientX));
+      setMemoryPanelWidth(newWidth);
+    }
+  }, []);
+
+  const handleMouseUp = useCallback(() => {
+    isDraggingRef.current = false;
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }, [handleMouseMove]);
 
   useEffect(() => {
     try {
@@ -973,7 +1008,7 @@ function App() {
       </header>
 
       <div className="main-content">
-        <aside className="sidebar">
+        <aside className="sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth, maxWidth: sidebarWidth }}>
           <div className="sidebar-header">
             <h2>项目目录</h2>
             <button className="btn-select" onClick={handleSelectFolder}>
@@ -1202,6 +1237,11 @@ function App() {
           )}
         </aside>
 
+        <div
+          className="resize-handle resize-handle-left"
+          onMouseDown={() => handleMouseDown('left')}
+        />
+
         <main className="canvas-area">
           <div className="graph-container">
             <div className="graph-header">
@@ -1229,7 +1269,12 @@ function App() {
           </div>
         </main>
 
-        <aside className="memory-panel">
+        <div
+          className="resize-handle resize-handle-right"
+          onMouseDown={() => handleMouseDown('right')}
+        />
+
+        <aside className="memory-panel" style={{ width: memoryPanelWidth, minWidth: memoryPanelWidth, maxWidth: memoryPanelWidth }}>
           <div className="graph-container">
             <div className="graph-header">
               <span className="graph-title">记忆图谱</span>

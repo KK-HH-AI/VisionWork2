@@ -70,7 +70,9 @@ async function createWindow() {
     }
   });
 
-  if (process.env.NODE_ENV === 'development' || process.env.VITE_DEV_SERVER_URL) {
+  const isDev = true;
+
+  if (isDev || process.env.NODE_ENV === 'development' || process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
