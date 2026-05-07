@@ -1,6 +1,12 @@
 import React from 'react';
 
-export default function ProgressBar({ currentTask, completedFiles, totalFiles }) {
+interface ProgressBarProps {
+  currentTask: string;
+  completedFiles: number;
+  totalFiles: number;
+}
+
+export default function ProgressBar({ currentTask, completedFiles, totalFiles }: ProgressBarProps) {
   const percent = totalFiles > 0 ? Math.round((completedFiles / totalFiles) * 100) : 0;
 
   return (

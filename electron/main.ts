@@ -1,28 +1,29 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
-const path = require('path');
-const fs = require('fs');
-const { spawn } = require('child_process');
-const crypto = require('crypto');
-const http = require('http');
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import path from 'path';
+import fs from 'fs';
+import { spawn, ChildProcess } from 'child_process';
+import crypto from 'crypto';
+import http from 'http';
+import net from 'net';
 
-let mainWindow;
-let pythonProcess;
-let backendPort;
-let backendToken;
+let mainWindow: BrowserWindow | null;
+let pythonProcess: ChildProcess | null;
+let backendPort: number;
+let backendToken: string;
 let isBackendReady = false;
 
-function findAvailablePort() {
-  const net = require('net');
+function findAvailablePort(): Promise<number> {
   return new Promise((resolve) => {
     const server = net.createServer();
     server.listen(0, '127.0.0.1', () => {
-      const port = server.address().port;
+      const addr = server.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 0;
       server.close(() => resolve(port));
     });
   });
 }
 
-function waitForBackendReady(port, timeout = 10000) {
+function waitForBackendReady(port: number, timeout = 10000): Promise<void> {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
     const checkInterval = setInterval(() => {
@@ -43,7 +44,7 @@ function waitForBackendReady(port, timeout = 10000) {
   });
 }
 
-function startPythonBackend(port, token) {
+function startPythonBackend(port: number, token: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const pythonPath = process.env.PYTHON_PATH || 'python';
     const scriptPath = path.join(__dirname, '..', 'src', 'backend', 'main.py');
@@ -55,7 +56,7 @@ function startPythonBackend(port, token) {
 
     let backendOutput = '';
 
-    pythonProcess.stdout.on('data', (data) => {
+    pythonProcess.stdout?.on('data', (data: Buffer) => {
       const str = data.toString();
       backendOutput += str;
       console.log(`[Backend] ${str.trim()}`);
@@ -64,18 +65,18 @@ function startPythonBackend(port, token) {
       }
     });
 
-    pythonProcess.stderr.on('data', (data) => {
+    pythonProcess.stderr?.on('data', (data: Buffer) => {
       const str = data.toString();
       backendOutput += str;
       console.error(`[Backend Error] ${str.trim()}`);
     });
 
-    pythonProcess.on('error', (err) => {
+    pythonProcess.on('error', (err: Error) => {
       console.error(`[Backend] Failed to start: ${err.message}`);
       reject(err);
     });
 
-    pythonProcess.on('exit', (code) => {
+    pythonProcess.on('exit', (code: number | null) => {
       console.log(`[Backend] Process exited with code ${code}`);
       isBackendReady = false;
       if (code !== 0 && code !== null) {
@@ -130,8 +131,8 @@ async function createWindow() {
       mainWindow = null;
     });
   } catch (err) {
-    console.error(`[Main] Failed to start application: ${err.message}`);
-    dialog.showErrorBox('启动失败', `无法启动后端服务：${err.message}\n\n请检查Python环境是否正确安装。`);
+    console.error(`[Main] Failed to start application: ${(err as Error).message}`);
+    dialog.showErrorBox('启动失败', `无法启动后端服务：${(err as Error).message}\n\n请检查Python环境是否正确安装。`);
     app.quit();
   }
 }
@@ -150,14 +151,14 @@ async function shutdownBackend() {
       pythonProcess.kill('SIGTERM');
     }
 
-    await new Promise((resolve) => {
+    await new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
         console.log('[Main] Backend did not exit gracefully, force killing...');
-        pythonProcess.kill('SIGKILL');
+        pythonProcess!.kill('SIGKILL');
         resolve();
       }, 3000);
 
-      pythonProcess.on('exit', () => {
+      pythonProcess!.on('exit', () => {
         clearTimeout(timeout);
         resolve();
       });
@@ -198,7 +199,7 @@ ipcMain.handle('get-backend-config', () => {
 });
 
 ipcMain.handle('select-folder', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
+  const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openDirectory']
   });
 
@@ -208,7 +209,7 @@ ipcMain.handle('select-folder', async () => {
   return null;
 });
 
-ipcMain.handle('read-file', async (event, filePath) => {
+ipcMain.handle('read-file', async (_event, filePath: string) => {
   try {
     if (!fs.existsSync(filePath)) {
       return { success: false, error: '文件不存在' };
@@ -220,6 +221,6 @@ ipcMain.handle('read-file', async (event, filePath) => {
     const content = fs.readFileSync(filePath, 'utf-8');
     return { success: true, content, size: stat.size };
   } catch (err) {
-    return { success: false, error: err.message };
+    return { success: false, error: (err as Error).message };
   }
 });

@@ -1,16 +1,29 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { flushSync } from 'react-dom';
+import type { MessageHandlers, WSMessage } from '../types';
 
-export default function useWebSocket(onMessageHandlers) {
-  const [ws, setWs] = useState(null);
+declare global {
+  interface Window {
+    electronAPI?: {
+      getBackendConfig: () => Promise<{ port: number; token: string; ready: boolean }>;
+      selectFolder: () => Promise<string | null>;
+      readFile: (filePath: string) => Promise<{ success: boolean; content?: string; error?: string; size?: number }>;
+    };
+    __enqueueCanvasCommand?: (command: unknown) => void;
+  }
+}
+
+export default function useWebSocket(onMessageHandlers: MessageHandlers) {
+  const [ws, setWs] = useState<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const backendPortRef = useRef(8765);
-  const wsRef = useRef(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     async function connect() {
       try {
-        let port, token;
+        let port: number;
+        let token: string;
 
         if (window.electronAPI) {
           const config = await window.electronAPI.getBackendConfig();
@@ -36,7 +49,7 @@ export default function useWebSocket(onMessageHandlers) {
         };
 
         websocket.onmessage = (event) => {
-          const message = JSON.parse(event.data);
+          const message: WSMessage = JSON.parse(event.data);
           console.log('[WS] Received message:', message.type, message);
 
           if (message.type === 'directory_tree') {
@@ -79,7 +92,7 @@ export default function useWebSocket(onMessageHandlers) {
             });
           } else if (message.type === 'error') {
             flushSync(() => {
-              if (onMessageHandlers.onError) onMessageHandlers.onError(message.message);
+              if (onMessageHandlers.onError) onMessageHandlers.onError(message.message || '');
             });
           } else if (message.type === 'pong') {
           }
@@ -93,7 +106,7 @@ export default function useWebSocket(onMessageHandlers) {
         setWs(websocket);
         wsRef.current = websocket;
       } catch (err) {
-        if (onMessageHandlers.onError) onMessageHandlers.onError(`Connection failed: ${err.message}`);
+        if (onMessageHandlers.onError) onMessageHandlers.onError(`Connection failed: ${(err as Error).message}`);
       }
     }
 
@@ -104,7 +117,7 @@ export default function useWebSocket(onMessageHandlers) {
     };
   }, []);
 
-  const sendMessage = useCallback((message) => {
+  const sendMessage = useCallback((message: unknown) => {
     if (wsRef.current && connected) {
       wsRef.current.send(JSON.stringify(message));
     }

@@ -1,4 +1,4 @@
-export const GROUP_COLORS = {
+export const GROUP_COLORS: Record<string, string> = {
   'python': '#4B8BBE',
   'javascript': '#F0DB4F',
   'react': '#61DAFB',
@@ -20,7 +20,7 @@ export const GROUP_COLORS = {
   'other': '#9E9E9E'
 };
 
-export const NODE_TYPE_COLORS = {
+export const NODE_TYPE_COLORS: Record<string, string> = {
   'module': '#4B8BBE',
   'function': '#E34F26',
   'class': '#ED8B00',

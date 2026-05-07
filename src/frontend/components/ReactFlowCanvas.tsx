@@ -1,22 +1,37 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useEffect } from 'react';
 import ReactFlow, {
-  useNodesState,
-  useEdgesState,
   addEdge,
   applyNodeChanges,
   applyEdgeChanges,
   Background,
   Controls,
   MarkerType,
-  ReactFlowProvider,
   Handle,
   Position,
+  type Node,
+  type Edge,
+  type Connection,
+  type NodeChange,
+  type EdgeChange,
+  type EdgeMarker,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
 import { GROUP_COLORS, NODE_TYPE_COLORS } from '../utils/constants';
+import type { CanvasCommand, CodeFileRef } from '../types';
 
-function getLayoutedElements(nodes, edges, direction = 'TB') {
+interface CanvasNodeData {
+  label: string;
+  nodeType?: string;
+  group?: string;
+  description?: string;
+  codeRef?: CodeFileRef[] | null;
+}
+
+type CanvasNode = Node<CanvasNodeData>;
+type CanvasEdge = Edge;
+
+function getLayoutedElements(nodes: CanvasNode[], edges: CanvasEdge[], direction = 'TB') {
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
 
@@ -54,8 +69,12 @@ function getLayoutedElements(nodes, edges, direction = 'TB') {
   return { nodes: layoutedNodes, edges };
 }
 
-function CustomNode({ data }) {
-  const color = NODE_TYPE_COLORS[data.nodeType] || GROUP_COLORS[data.group] || GROUP_COLORS['other'];
+interface CustomNodeProps {
+  data: CanvasNodeData;
+}
+
+function CustomNode({ data }: CustomNodeProps) {
+  const color = NODE_TYPE_COLORS[data.nodeType || ''] || GROUP_COLORS[data.group || ''] || GROUP_COLORS['other'];
   return (
     <div className="rf-custom-node" style={{ borderColor: color }}>
       <Handle type="target" position={Position.Top} className="rf-handle" />
@@ -72,10 +91,27 @@ function CustomNode({ data }) {
 
 const nodeTypes = { customNode: CustomNode };
 
-export default function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSecondPass, onNodeDoubleClick, theme }) {
-  const commandQueueRef = useRef([]);
+interface ReactFlowCanvasProps {
+  nodes: CanvasNode[];
+  setNodes: (updater: CanvasNode[] | ((nds: CanvasNode[]) => CanvasNode[])) => void;
+  edges: CanvasEdge[];
+  setEdges: (updater: CanvasEdge[] | ((eds: CanvasEdge[]) => CanvasEdge[])) => void;
+  isSecondPass: boolean;
+  onNodeDoubleClick?: (node: CanvasNode) => void;
+  theme: string;
+}
+
+export default function ReactFlowCanvas({
+  nodes,
+  setNodes,
+  edges,
+  setEdges,
+  isSecondPass,
+  onNodeDoubleClick,
+  theme,
+}: ReactFlowCanvasProps) {
+  const commandQueueRef = useRef<CanvasCommand[]>([]);
   const processingRef = useRef(false);
-  const reactFlowInstanceRef = useRef(null);
   const latestNodesRef = useRef(nodes);
   const latestEdgesRef = useRef(edges);
   const themeRef = useRef(theme);
@@ -89,25 +125,25 @@ export default function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSe
   const labelColor = theme === 'dark' ? '#aaa' : '#555';
   const labelBgColor = theme === 'dark' ? 'rgba(26, 26, 46, 0.8)' : 'rgba(255, 255, 255, 0.9)';
 
-  const processCommand = useCallback(async (command) => {
+  const processCommand = useCallback(async (command: CanvasCommand) => {
     const cmd = command.cmd;
     const delay = 200;
     console.log('[ReactFlowCanvas] Processing command:', cmd, JSON.stringify(command).substring(0, 120));
 
     if (cmd === 'add_node') {
       await new Promise(resolve => setTimeout(resolve, delay));
-      setNodes((nds) => {
+      setNodes((nds: CanvasNode[]) => {
         const exists = nds.find(n => n.id === command.id);
         if (exists) return nds;
-        const newNode = {
-          id: command.id,
+        const newNode: CanvasNode = {
+          id: command.id || '',
           type: 'customNode',
           position: {
             x: Math.random() * 400 + 100,
             y: Math.random() * 300 + 50,
           },
           data: {
-            label: command.label || command.id,
+            label: command.label || command.id || '',
             nodeType: command.type || 'module',
             group: command.group || 'other',
             description: command.description || '',
@@ -119,7 +155,7 @@ export default function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSe
           },
         };
         setTimeout(() => {
-          setNodes((current) =>
+          setNodes((current: CanvasNode[]) =>
             current.map((n) =>
               n.id === command.id
                 ? { ...n, style: { ...n.style, opacity: 1 } }
@@ -131,19 +167,19 @@ export default function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSe
       });
     } else if (cmd === 'add_edge') {
       await new Promise(resolve => setTimeout(resolve, delay));
-      setEdges((eds) => {
+      setEdges((eds: CanvasEdge[]) => {
         const exists = eds.find(
           e => e.source === command.source && e.target === command.target
         );
         if (exists) return eds;
-        const newEdge = {
+        const newEdge: CanvasEdge = {
           id: `e-${command.source}-${command.target}`,
-          source: command.source,
-          target: command.target,
+          source: command.source || '',
+          target: command.target || '',
           label: command.label || '',
           type: 'smoothstep',
           animated: true,
-          markerEnd: { type: MarkerType.ArrowClosed, color: edgeMarkerColor },
+          markerEnd: { type: MarkerType.ArrowClosed, color: edgeMarkerColor } as EdgeMarker,
           style: {
             stroke: edgeColor,
             strokeWidth: 1.5,
@@ -154,7 +190,7 @@ export default function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSe
           labelBgStyle: { fill: labelBgColor },
         };
         setTimeout(() => {
-          setEdges((current) =>
+          setEdges((current: CanvasEdge[]) =>
             current.map((e) =>
               e.id === newEdge.id
                 ? { ...e, style: { ...e.style, opacity: 1 } }
@@ -175,7 +211,7 @@ export default function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSe
     }
   }, [setNodes, setEdges]);
 
-  const enqueueCommand = useCallback((command) => {
+  const enqueueCommand = useCallback((command: CanvasCommand) => {
     commandQueueRef.current.push(command);
     if (!processingRef.current) {
       processQueue();
@@ -186,28 +222,26 @@ export default function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSe
     processingRef.current = true;
     while (commandQueueRef.current.length > 0) {
       const command = commandQueueRef.current.shift();
-      await processCommand(command);
+      if (command) {
+        await processCommand(command);
+      }
     }
     processingRef.current = false;
   }, [processCommand]);
 
   useEffect(() => {
-    window.__enqueueCanvasCommand = enqueueCommand;
+    (window as unknown as Record<string, unknown>).__enqueueCanvasCommand = enqueueCommand;
     return () => {
-      delete window.__enqueueCanvasCommand;
+      delete (window as unknown as Record<string, unknown>).__enqueueCanvasCommand;
     };
   }, [enqueueCommand]);
 
-  const onInit = useCallback((instance) => {
-    reactFlowInstanceRef.current = instance;
-  }, []);
-
-  const onNodesChangeHandler = useCallback((changes) => {
-    setNodes((nds) => applyNodeChanges(changes, nds));
+  const onNodesChangeHandler = useCallback((changes: NodeChange[]) => {
+    setNodes((nds: CanvasNode[]) => applyNodeChanges(changes, nds) as CanvasNode[]);
   }, [setNodes]);
 
-  const onEdgesChangeHandler = useCallback((changes) => {
-    setEdges((eds) => applyEdgeChanges(changes, eds));
+  const onEdgesChangeHandler = useCallback((changes: EdgeChange[]) => {
+    setEdges((eds: CanvasEdge[]) => applyEdgeChanges(changes, eds) as CanvasEdge[]);
   }, [setEdges]);
 
   return (
@@ -217,22 +251,21 @@ export default function ReactFlowCanvas({ nodes, setNodes, edges, setEdges, isSe
         edges={edges}
         onNodesChange={onNodesChangeHandler}
         onEdgesChange={onEdgesChangeHandler}
-        onNodeDoubleClick={(event, node) => {
+        onNodeDoubleClick={(_event, node) => {
           if (onNodeDoubleClick) {
-            onNodeDoubleClick(node);
+            onNodeDoubleClick(node as CanvasNode);
           }
         }}
-        onConnect={(connection) => {
-          setEdges((eds) => addEdge({
+        onConnect={(connection: Connection) => {
+          setEdges((eds: CanvasEdge[]) => addEdge({
             ...connection,
             type: 'smoothstep',
             animated: true,
-            markerEnd: { type: MarkerType.ArrowClosed, color: '#888' },
+            markerEnd: { type: MarkerType.ArrowClosed, color: '#888' } as EdgeMarker,
             style: { stroke: 'rgba(255,255,255,0.3)', strokeWidth: 1.5 },
           }, eds));
         }}
         nodeTypes={nodeTypes}
-        onInit={onInit}
         fitView
         fitViewOptions={{ padding: 0.3 }}
         minZoom={0.1}

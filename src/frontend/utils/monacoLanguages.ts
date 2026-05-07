@@ -1,6 +1,6 @@
-export function getMonacoLanguage(filename) {
-  const ext = filename.split('.').pop().toLowerCase();
-  const langMap = {
+export function getMonacoLanguage(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  const langMap: Record<string, string> = {
     'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
     'py': 'python', 'java': 'java', 'cpp': 'cpp', 'c': 'c', 'h': 'c',
     'html': 'html', 'css': 'css', 'scss': 'scss', 'less': 'less',
