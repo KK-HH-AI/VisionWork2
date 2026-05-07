@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNodesState, useEdgesState } from 'reactflow';
+import { useNodesState, useEdgesState, type Node, type Edge } from 'reactflow';
 import useWebSocket from './hooks/useWebSocket';
 import DirectoryTree from './components/DirectoryTree';
 import MemoryGraph from './components/MemoryGraph';
@@ -8,32 +8,52 @@ import ProgressBar from './components/ProgressBar';
 import CodeViewPanel from './components/CodeViewPanel';
 import ConfigPanel from './components/ConfigPanel';
 import WorkspaceTree from './components/WorkspaceTree';
+import type {
+  DirectoryNode,
+  GraphNode,
+  GraphEdge,
+  MemoryNote,
+  WorkspaceItem,
+  CodeFileRef,
+  WSMessage,
+} from './types';
+
+declare global {
+  interface Window {
+    electronAPI?: {
+      getBackendConfig: () => Promise<{ port: number; token: string; ready: boolean }>;
+      selectFolder: () => Promise<string | null>;
+      readFile: (filePath: string) => Promise<{ success: boolean; content?: string; error?: string; size?: number }>;
+    };
+    showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
+  }
+}
 
 export default function App() {
-  const [directoryTree, setDirectoryTree] = useState(null);
+  const [directoryTree, setDirectoryTree] = useState<DirectoryNode | null>(null);
   const [currentPath, setCurrentPath] = useState('');
   const [error, setError] = useState('');
   const [isDragging, setIsDragging] = useState(false);
-  const [graphNodes, setGraphNodes] = useState([]);
-  const [graphEdges, setGraphEdges] = useState([]);
-  const [memoryNotes, setMemoryNotes] = useState([]);
+  const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
+  const [graphEdges, setGraphEdges] = useState<GraphEdge[]>([]);
+  const [memoryNotes, setMemoryNotes] = useState<MemoryNote[]>([]);
   const [memoryDir, setMemoryDir] = useState('');
-  const [selectedMemoryNote, setSelectedMemoryNote] = useState(null);
+  const [selectedMemoryNote, setSelectedMemoryNote] = useState<MemoryNote | null>(null);
   const [memoryNoteContent, setMemoryNoteContent] = useState('');
   const [memoryNoteSaving, setMemoryNoteSaving] = useState(false);
   const [memoryNoteLoading, setMemoryNoteLoading] = useState(false);
   const [memoryNoteError, setMemoryNoteError] = useState('');
   const [memoryNoteSaved, setMemoryNoteSaved] = useState(false);
   const [showMemoryNotes, setShowMemoryNotes] = useState(false);
-  const [workspaceTree, setWorkspaceTree] = useState([]);
-  const [expandedDirs, setExpandedDirs] = useState({});
+  const [workspaceTree, setWorkspaceTree] = useState<WorkspaceItem[]>([]);
+  const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({});
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentTask, setCurrentTask] = useState('');
   const [completedFiles, setCompletedFiles] = useState(0);
   const [totalFiles, setTotalFiles] = useState(0);
   const [stopFlag, setStopFlag] = useState('');
   const [isSecondPass, setIsSecondPass] = useState(false);
-  const [retrievalPath, setRetrievalPath] = useState([]);
+  const [retrievalPath, setRetrievalPath] = useState<string[]>([]);
   const [theme, setTheme] = useState(() => {
     try {
       const saved = localStorage.getItem('visionwork2_theme');
@@ -56,17 +76,17 @@ export default function App() {
 
   const [sidebarWidth, setSidebarWidth] = useState(340);
   const [memoryPanelWidth, setMemoryPanelWidth] = useState(340);
-  const isDraggingRef = useRef(false);
+  const isDraggingRef = useRef<string | false>(false);
 
-  const [codeViewNode, setCodeViewNode] = useState(null);
-  const [codeFileList, setCodeFileList] = useState([]);
-  const [selectedCodeFile, setSelectedCodeFile] = useState(null);
+  const [codeViewNode, setCodeViewNode] = useState<Node | null>(null);
+  const [codeFileList, setCodeFileList] = useState<CodeFileRef[]>([]);
+  const [selectedCodeFile, setSelectedCodeFile] = useState<CodeFileRef | null>(null);
   const [fileContent, setFileContent] = useState('');
   const [fileContentLoading, setFileContentLoading] = useState(false);
   const [fileContentError, setFileContentError] = useState('');
-  const [highlightLines, setHighlightLines] = useState(null);
+  const [highlightLines, setHighlightLines] = useState<[number, number] | null>(null);
 
-  const setCanvasNodesWrapped = useCallback((updater) => {
+  const setCanvasNodesWrapped = useCallback((updater: Node[] | ((nds: Node[]) => Node[])) => {
     if (typeof updater === 'function') {
       setCanvasNodes(updater);
     } else {
@@ -74,7 +94,7 @@ export default function App() {
     }
   }, [setCanvasNodes]);
 
-  const setCanvasEdgesWrapped = useCallback((updater) => {
+  const setCanvasEdgesWrapped = useCallback((updater: Edge[] | ((eds: Edge[]) => Edge[])) => {
     if (typeof updater === 'function') {
       setCanvasEdges(updater);
     } else {
@@ -83,12 +103,12 @@ export default function App() {
   }, [setCanvasEdges]);
 
   const messageHandlers = {
-    onDirectoryTree: (msg) => {
-      setDirectoryTree(msg.tree);
-      setCurrentPath(msg.path);
+    onDirectoryTree: (msg: WSMessage) => {
+      setDirectoryTree(msg.tree || null);
+      setCurrentPath(msg.path || '');
       setError('');
     },
-    onMemoryGraph: (msg) => {
+    onMemoryGraph: (msg: WSMessage) => {
       setGraphNodes(msg.nodes || []);
       setGraphEdges(msg.edges || []);
       if (msg.memory_dir) {
@@ -96,7 +116,7 @@ export default function App() {
         loadMemoryDir(msg.memory_dir);
       }
     },
-    onProgress: (msg) => {
+    onProgress: (msg: WSMessage) => {
       setCurrentTask(msg.currentTask || '');
       setCompletedFiles(msg.completedFiles || 0);
       setTotalFiles(msg.totalFiles || 0);
@@ -110,16 +130,16 @@ export default function App() {
       setCurrentTask('分析完成');
       setIsSecondPass(false);
     },
-    onMemoryPathUpdate: (msg) => {
+    onMemoryPathUpdate: (msg: WSMessage) => {
       setRetrievalPath(msg.nodeIds || []);
     },
-    onStopped: (msg) => {
+    onStopped: (msg: WSMessage) => {
       setIsAnalyzing(false);
       setCurrentTask(`已停止分析，已完成 ${msg.completedFiles || 0}/${msg.totalFiles || 0} 份文件`);
       setIsSecondPass(false);
     },
-    onError: (msg) => {
-      setError(typeof msg === 'string' ? msg : msg.message);
+    onError: (msg: string | WSMessage) => {
+      setError(typeof msg === 'string' ? msg : msg.message || '');
       setIsAnalyzing(false);
       setIsSecondPass(false);
     },
@@ -162,7 +182,7 @@ export default function App() {
     }
   }, [profession, apiUrl, apiKey, modelName]);
 
-  const loadMemoryDir = async (dir) => {
+  const loadMemoryDir = async (dir: string) => {
     if (!dir) return;
     try {
       const port = backendPortRef.current;
@@ -205,18 +225,18 @@ export default function App() {
     }
   }, [connected]);
 
-  const scanDirectory = useCallback((folderPath) => {
+  const scanDirectory = useCallback((folderPath: string) => {
     sendMessage({ type: 'scan_directory', path: folderPath });
   }, [sendMessage]);
 
-  const handleDrop = useCallback((e) => {
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     let droppedPath = '';
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
-      if (file.path) {
-        droppedPath = file.path;
+      if ((file as unknown as { path?: string }).path) {
+        droppedPath = (file as unknown as { path: string }).path;
       }
     }
     if (!droppedPath && e.dataTransfer.getData) {
@@ -230,12 +250,12 @@ export default function App() {
     }
   }, [scanDirectory]);
 
-  const handleDragOver = useCallback((e) => {
+  const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
   }, []);
 
-  const handleDragLeave = useCallback((e) => {
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
   }, []);
@@ -296,15 +316,15 @@ export default function App() {
     setCurrentTask('正在请求停止分析...');
   }, [connected, stopFlag, sendMessage]);
 
-  const handleNodeDoubleClick = useCallback((node) => {
-    const codeRef = node.data?.codeRef;
+  const handleNodeDoubleClick = useCallback((node: Node) => {
+    const codeRef = (node.data as Record<string, unknown>)?.codeRef as CodeFileRef[] | undefined;
     if (!codeRef || !Array.isArray(codeRef) || codeRef.length === 0) {
       setError('该节点没有关联的代码文件');
       setTimeout(() => setError(''), 3000);
       return;
     }
-    const seen = new Set();
-    const files = [];
+    const seen = new Set<string>();
+    const files: CodeFileRef[] = [];
     codeRef.forEach(ref => {
       if (ref.file && !seen.has(ref.file)) {
         seen.add(ref.file);
@@ -319,18 +339,18 @@ export default function App() {
     setHighlightLines(null);
   }, []);
 
-  const loadFileContent = useCallback(async (fileRef) => {
+  const loadFileContent = useCallback(async (fileRef: CodeFileRef) => {
     setFileContentLoading(true);
     setFileContentError('');
     setSelectedCodeFile(fileRef);
-    setHighlightLines(fileRef.lines);
+    setHighlightLines(fileRef.lines || null);
     try {
       if (window.electronAPI && window.electronAPI.readFile) {
         const result = await window.electronAPI.readFile(fileRef.file);
         if (result.success) {
-          setFileContent(result.content);
+          setFileContent(result.content || '');
         } else {
-          setFileContentError(result.error);
+          setFileContentError(result.error || '');
           setFileContent('');
         }
       } else {
@@ -345,14 +365,14 @@ export default function App() {
         }
       }
     } catch (err) {
-      setFileContentError(`读取文件失败: ${err.message}`);
+      setFileContentError(`读取文件失败: ${(err as Error).message}`);
       setFileContent('');
     } finally {
       setFileContentLoading(false);
     }
   }, []);
 
-  const handleFileClick = useCallback((fileRef) => {
+  const handleFileClick = useCallback((fileRef: CodeFileRef) => {
     loadFileContent(fileRef);
   }, [loadFileContent]);
 
@@ -365,8 +385,8 @@ export default function App() {
     setHighlightLines(null);
   }, []);
 
-  const handleMemoryNoteClick = async (note) => {
-    setSelectedMemoryNote(note);
+  const handleMemoryNoteClick = async (note: WorkspaceItem) => {
+    setSelectedMemoryNote(note as unknown as MemoryNote);
     setShowMemoryNotes(true);
     setMemoryNoteContent('');
     setMemoryNoteError('');
@@ -382,7 +402,7 @@ export default function App() {
         setMemoryNoteError('无法读取文件内容');
       }
     } catch (e) {
-      setMemoryNoteError('读取文件失败: ' + e.message);
+      setMemoryNoteError('读取文件失败: ' + (e as Error).message);
     } finally {
       setMemoryNoteLoading(false);
     }
@@ -407,20 +427,20 @@ export default function App() {
         setMemoryNoteError('保存失败: ' + (data.detail || '未知错误'));
       }
     } catch (e) {
-      setMemoryNoteError('保存失败: ' + e.message);
+      setMemoryNoteError('保存失败: ' + (e as Error).message);
     } finally {
       setMemoryNoteSaving(false);
     }
   };
 
-  const toggleDir = (path) => {
+  const toggleDir = (path: string) => {
     setExpandedDirs(prev => ({ ...prev, [path]: !prev[path] }));
   };
 
-  const handleMouseMoveRef = useRef(null);
-  const handleMouseUpRef = useRef(null);
+  const handleMouseMoveRef = useRef<((e: MouseEvent) => void) | null>(null);
+  const handleMouseUpRef = useRef<(() => void) | null>(null);
 
-  handleMouseMoveRef.current = (e) => {
+  handleMouseMoveRef.current = (e: MouseEvent) => {
     if (!isDraggingRef.current) return;
     if (isDraggingRef.current === 'left') {
       const newWidth = Math.max(250, Math.min(500, e.clientX));
@@ -433,16 +453,16 @@ export default function App() {
 
   handleMouseUpRef.current = () => {
     isDraggingRef.current = false;
-    document.removeEventListener('mousemove', handleMouseMoveRef.current);
-    document.removeEventListener('mouseup', handleMouseUpRef.current);
+    document.removeEventListener('mousemove', handleMouseMoveRef.current!);
+    document.removeEventListener('mouseup', handleMouseUpRef.current!);
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
   };
 
-  const handleMouseDown = useCallback((panel) => {
+  const handleMouseDown = useCallback((panel: string) => {
     isDraggingRef.current = panel;
-    document.addEventListener('mousemove', handleMouseMoveRef.current);
-    document.addEventListener('mouseup', handleMouseUpRef.current);
+    document.addEventListener('mousemove', handleMouseMoveRef.current!);
+    document.addEventListener('mouseup', handleMouseUpRef.current!);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   }, []);
@@ -465,7 +485,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className="main-content" style={{ '--sidebar-width': sidebarWidth + 'px', '--memory-panel-width': memoryPanelWidth + 'px' }}>
+      <div className="main-content" style={{ '--sidebar-width': sidebarWidth + 'px', '--memory-panel-width': memoryPanelWidth + 'px' } as React.CSSProperties}>
         <aside className="sidebar">
           <div className="sidebar-header">
             <h2>项目目录</h2>
@@ -626,7 +646,7 @@ export default function App() {
                       edges={graphEdges}
                       retrievalPath={retrievalPath}
                       theme={theme}
-                      onNodeClick={handleMemoryNoteClick}
+                      onNodeClick={handleMemoryNoteClick as unknown as (node: GraphNode) => void}
                     />
                   ) : (
                     <div className="memory-notes-empty">

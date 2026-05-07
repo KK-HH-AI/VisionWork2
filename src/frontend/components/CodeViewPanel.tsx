@@ -2,6 +2,21 @@ import React, { useEffect } from 'react';
 import Editor from '@monaco-editor/react';
 import { getFileIcon } from '../utils/fileIcons';
 import { getMonacoLanguage } from '../utils/monacoLanguages';
+import type { CodeFileRef } from '../types';
+
+interface CodeViewPanelProps {
+  codeViewNode: { data?: { label?: string } } | null;
+  codeFileList: CodeFileRef[];
+  selectedCodeFile: CodeFileRef | null;
+  fileContent: string;
+  fileContentLoading: boolean;
+  fileContentError: string;
+  highlightLines: [number, number] | null;
+  theme: string;
+  onBackToTree: () => void;
+  onFileClick: (fileRef: CodeFileRef) => void;
+  loadFileContent: (fileRef: CodeFileRef) => void;
+}
 
 export default function CodeViewPanel({
   codeViewNode,
@@ -15,7 +30,7 @@ export default function CodeViewPanel({
   onBackToTree,
   onFileClick,
   loadFileContent,
-}) {
+}: CodeViewPanelProps) {
   useEffect(() => {
     if (codeViewNode && codeFileList.length > 0 && !selectedCodeFile) {
       loadFileContent(codeFileList[0]);
@@ -42,7 +57,7 @@ export default function CodeViewPanel({
             className={`code-file-item ${selectedCodeFile === fileRef ? 'active' : ''}`}
             onClick={() => onFileClick(fileRef)}
           >
-            <span className="code-file-icon">{getFileIcon(fileRef.file.split(/[/\\]/).pop())}</span>
+            <span className="code-file-icon">{getFileIcon(fileRef.file.split(/[/\\]/).pop() || '')}</span>
             <span className="code-file-name" title={fileRef.file}>
               {fileRef.file.split(/[/\\]/).pop()}
             </span>

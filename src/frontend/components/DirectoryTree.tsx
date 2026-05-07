@@ -1,7 +1,13 @@
 import React, { useState } from 'react';
 import { getFileIcon } from '../utils/fileIcons';
+import type { DirectoryNode } from '../types';
 
-export default function DirectoryTree({ node, depth = 0 }) {
+interface DirectoryTreeProps {
+  node: DirectoryNode;
+  depth?: number;
+}
+
+export default function DirectoryTree({ node, depth = 0 }: DirectoryTreeProps) {
   const [expanded, setExpanded] = useState(depth < 2);
   const isDirectory = node.type === 'directory';
 

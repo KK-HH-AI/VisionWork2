@@ -1,12 +1,25 @@
 import React from 'react';
 
+interface ConfigPanelProps {
+  profession: string;
+  setProfession: (value: string) => void;
+  apiUrl: string;
+  setApiUrl: (value: string) => void;
+  apiKey: string;
+  setApiKey: (value: string) => void;
+  modelName: string;
+  setModelName: (value: string) => void;
+  isAnalyzing: boolean;
+  configSaved: boolean;
+}
+
 export default function ConfigPanel({
   profession, setProfession,
   apiUrl, setApiUrl,
   apiKey, setApiKey,
   modelName, setModelName,
   isAnalyzing, configSaved
-}) {
+}: ConfigPanelProps) {
   return (
     <div className="config-panel">
       <div className="config-field">

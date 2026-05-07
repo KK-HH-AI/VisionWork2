@@ -1,12 +1,20 @@
 import React from 'react';
+import type { WorkspaceItem } from '../types';
+
+interface WorkspaceTreeProps {
+  workspaceTree: WorkspaceItem[];
+  expandedDirs: Record<string, boolean>;
+  onToggleDir: (path: string) => void;
+  onNoteClick: (item: WorkspaceItem) => void;
+}
 
 export default function WorkspaceTree({
   workspaceTree,
   expandedDirs,
   onToggleDir,
   onNoteClick,
-}) {
-  const countFiles = (items) => {
+}: WorkspaceTreeProps) {
+  const countFiles = (items: WorkspaceItem[]): number => {
     let count = 0;
     for (const item of items) {
       if (item.type === 'file') {
@@ -18,7 +26,7 @@ export default function WorkspaceTree({
     return count;
   };
 
-  const renderTree = (items, depth = 0) => {
+  const renderTree = (items: WorkspaceItem[], depth = 0) => {
     return items.map((item) => {
       if (item.type === 'directory') {
         const isExpanded = expandedDirs[item.path];
