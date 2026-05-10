@@ -4,6 +4,7 @@ import useWebSocket from './hooks/useWebSocket';
 import SessionSidebar from './components/SessionSidebar';
 import RightPanel from './components/RightPanel';
 import ChatView from './components/ChatView';
+import ReactFlowCanvas from './components/ReactFlowCanvas';
 import ConfigPanel from './components/ConfigPanel';
 import type { ChatMessage, WSMessage } from './types';
 
@@ -242,9 +243,7 @@ export default function App() {
         </div>
         <div className="center-resize-handle" onMouseDown={handleCenterMouseDown} />
         <div className="canvas-panel" style={{ width: `${100 - chatWidth}%` }}>
-          <div className="canvas-placeholder">
-            <span>画布区域</span>
-          </div>
+          <ReactFlowCanvas theme={theme} />
         </div>
       </div>
     </div>

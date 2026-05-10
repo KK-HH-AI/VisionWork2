@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import ReactFlow, {
   addEdge,
   applyNodeChanges,
@@ -17,16 +17,9 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
+import { Maximize, Minimize } from 'react-feather';
 import { GROUP_COLORS, NODE_TYPE_COLORS } from '../utils/constants';
-import type { CanvasCommand, CodeFileRef } from '../types';
-
-interface CanvasNodeData {
-  label: string;
-  nodeType?: string;
-  group?: string;
-  description?: string;
-  codeRef?: CodeFileRef[] | null;
-}
+import type { CanvasCommand, CanvasNodeData } from '../types';
 
 type CanvasNode = Node<CanvasNodeData>;
 type CanvasEdge = Edge;
@@ -92,24 +85,14 @@ function CustomNode({ data }: CustomNodeProps) {
 const nodeTypes = { customNode: CustomNode };
 
 interface ReactFlowCanvasProps {
-  nodes: CanvasNode[];
-  setNodes: (updater: CanvasNode[] | ((nds: CanvasNode[]) => CanvasNode[])) => void;
-  edges: CanvasEdge[];
-  setEdges: (updater: CanvasEdge[] | ((eds: CanvasEdge[]) => CanvasEdge[])) => void;
-  isSecondPass: boolean;
-  onNodeDoubleClick?: (node: CanvasNode) => void;
   theme: string;
 }
 
-export default function ReactFlowCanvas({
-  nodes,
-  setNodes,
-  edges,
-  setEdges,
-  isSecondPass,
-  onNodeDoubleClick,
-  theme,
-}: ReactFlowCanvasProps) {
+export default function ReactFlowCanvas({ theme }: ReactFlowCanvasProps) {
+  const [nodes, setNodes] = useState<CanvasNode[]>([]);
+  const [edges, setEdges] = useState<CanvasEdge[]>([]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
   const commandQueueRef = useRef<CanvasCommand[]>([]);
   const processingRef = useRef(false);
   const latestNodesRef = useRef(nodes);
@@ -128,7 +111,6 @@ export default function ReactFlowCanvas({
   const processCommand = useCallback(async (command: CanvasCommand) => {
     const cmd = command.cmd;
     const delay = 200;
-    console.log('[ReactFlowCanvas] Processing command:', cmd, JSON.stringify(command).substring(0, 120));
 
     if (cmd === 'add_node') {
       await new Promise(resolve => setTimeout(resolve, delay));
@@ -209,7 +191,7 @@ export default function ReactFlowCanvas({
       setNodes(layoutedNodes);
       setEdges(layoutedEdges);
     }
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, edgeColor, edgeMarkerColor, labelColor, labelBgColor]);
 
   const enqueueCommand = useCallback((command: CanvasCommand) => {
     commandQueueRef.current.push(command);
@@ -244,18 +226,34 @@ export default function ReactFlowCanvas({
     setEdges((eds: CanvasEdge[]) => applyEdgeChanges(changes, eds) as CanvasEdge[]);
   }, [setEdges]);
 
+  const toggleFullscreen = useCallback(() => {
+    setIsFullscreen((prev) => !prev);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen]);
+
   return (
-    <div className="rf-container">
+    <div className={`rf-container ${isFullscreen ? 'rf-fullscreen' : ''}`}>
+      <button
+        className="rf-fullscreen-btn"
+        onClick={toggleFullscreen}
+        title={isFullscreen ? '退出全屏' : '全屏'}
+      >
+        {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+      </button>
       <ReactFlow
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChangeHandler}
         onEdgesChange={onEdgesChangeHandler}
-        onNodeDoubleClick={(_event, node) => {
-          if (onNodeDoubleClick) {
-            onNodeDoubleClick(node as CanvasNode);
-          }
-        }}
         onConnect={(connection: Connection) => {
           setEdges((eds: CanvasEdge[]) => addEdge({
             ...connection,
