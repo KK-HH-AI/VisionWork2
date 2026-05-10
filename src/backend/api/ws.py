@@ -115,6 +115,32 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
                         "message": "No stop_flag provided"
                     })
 
+            elif message.get("type") == "chat_message":
+                content = message.get("content", "")
+                await websocket.send_json({
+                    "type": "chat_response",
+                    "message": f"您好！我是您的代码分析助手。您说：{content}"
+                })
+
+                import asyncio as _asyncio
+                await _asyncio.sleep(0.5)
+
+                canvas_commands = [
+                    {"cmd": "add_node", "id": "node-main", "label": "入口模块", "type": "module", "group": "python"},
+                    {"cmd": "add_node", "id": "node-core", "label": "核心引擎", "type": "module", "group": "python"},
+                    {"cmd": "add_node", "id": "node-utils", "label": "工具函数", "type": "function", "group": "python"},
+                    {"cmd": "add_edge", "source": "node-main", "target": "node-core", "label": "调用"},
+                    {"cmd": "add_edge", "source": "node-core", "target": "node-utils", "label": "依赖"},
+                    {"cmd": "layout"},
+                ]
+
+                for cmd in canvas_commands:
+                    await websocket.send_json({
+                        "type": "canvas_command",
+                        "command": cmd,
+                    })
+                    await _asyncio.sleep(0.3)
+
             elif message.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
 

@@ -558,15 +558,106 @@ body {
   min-width: 0;
   overflow: hidden;
   background: var(--bg-primary);
+  position: relative;
 }
 
-.canvas-placeholder {
+.rf-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.rf-container.rf-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 500;
+  background: var(--bg-primary);
+}
+
+.rf-fullscreen-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  color: var(--text-tertiary);
-  font-size: 0.9rem;
+  width: 30px;
+  height: 30px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.rf-fullscreen-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
+.rf-custom-node {
+  background: var(--bg-secondary);
+  border: 2px solid #4B8BBE;
+  border-radius: 8px;
+  min-width: 160px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.rf-node-header {
+  padding: 4px 10px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.rf-node-body {
+  padding: 8px 12px;
+}
+
+.rf-node-label {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.rf-handle {
+  width: 8px;
+  height: 8px;
+  background: var(--border-color);
+  border: 2px solid var(--bg-secondary);
+}
+
+.rf-controls {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rf-controls button {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+}
+
+.rf-controls button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.rf-controls button:last-child {
+  border-bottom: none;
 }
 
 ::-webkit-scrollbar {
