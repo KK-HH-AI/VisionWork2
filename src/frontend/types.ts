@@ -79,6 +79,13 @@ export interface CanvasCommand {
   target?: string;
 }
 
+export interface AgentPlanStep {
+  step_number: number;
+  action: string;
+  args: Record<string, unknown>;
+  thought: string;
+}
+
 export interface WSMessage {
   type: string;
   tree?: DirectoryNode;
@@ -92,6 +99,11 @@ export interface WSMessage {
   nodeIds?: string[];
   message?: string;
   command?: CanvasCommand;
+  plan?: AgentPlanStep[];
+  tool_name?: string;
+  args?: Record<string, unknown>;
+  thought?: string;
+  result?: string;
 }
 
 export interface ChatMessage {
@@ -111,4 +123,9 @@ export interface MessageHandlers {
   onStopped?: (msg: WSMessage) => void;
   onError?: (msg: string | WSMessage) => void;
   onChatResponse?: (msg: WSMessage) => void;
+  onThought?: (msg: WSMessage) => void;
+  onPlan?: (msg: WSMessage) => void;
+  onToolCall?: (msg: WSMessage) => void;
+  onToolResult?: (msg: WSMessage) => void;
+  onReflection?: (msg: WSMessage) => void;
 }

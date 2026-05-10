@@ -98,6 +98,26 @@ export default function useWebSocket(onMessageHandlers: MessageHandlers) {
             flushSync(() => {
               if (onMessageHandlers.onChatResponse) onMessageHandlers.onChatResponse(message);
             });
+          } else if (message.type === 'thought') {
+            flushSync(() => {
+              if (onMessageHandlers.onThought) onMessageHandlers.onThought(message);
+            });
+          } else if (message.type === 'plan') {
+            flushSync(() => {
+              if (onMessageHandlers.onPlan) onMessageHandlers.onPlan(message);
+            });
+          } else if (message.type === 'tool_call') {
+            flushSync(() => {
+              if (onMessageHandlers.onToolCall) onMessageHandlers.onToolCall(message);
+            });
+          } else if (message.type === 'tool_result') {
+            flushSync(() => {
+              if (onMessageHandlers.onToolResult) onMessageHandlers.onToolResult(message);
+            });
+          } else if (message.type === 'reflection') {
+            flushSync(() => {
+              if (onMessageHandlers.onReflection) onMessageHandlers.onReflection(message);
+            });
           } else if (message.type === 'pong') {
           }
         };
@@ -122,7 +142,7 @@ export default function useWebSocket(onMessageHandlers: MessageHandlers) {
   }, []);
 
   const sendMessage = useCallback((message: unknown) => {
-    if (wsRef.current && connected) {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     }
   }, [connected]);

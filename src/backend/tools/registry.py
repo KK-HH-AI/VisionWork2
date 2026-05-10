@@ -71,5 +71,22 @@ class ToolRegistry:
             return f'{{"error": "Unknown tool: {name}"}}'
         return await tool.execute(**args)
 
+    def execute_tool_sync(self, name: str, args: Dict[str, Any]) -> str:
+        tool = self._tools.get(name)
+        if not tool:
+            return f'{{"error": "Unknown tool: {name}"}}'
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, tool.execute(**args))
+                    return future.result(timeout=30)
+            else:
+                return asyncio.run(tool.execute(**args))
+        except RuntimeError:
+            return asyncio.run(tool.execute(**args))
+
 
 tool_registry = ToolRegistry()

@@ -1,81 +1,138 @@
 import json
-import re
-from typing import TypedDict, List, Optional, Callable, Awaitable
+import os
+import hashlib
+from typing import TypedDict, List, Optional, Any
+from langgraph.graph import StateGraph, END
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+
 from ..tools.registry import tool_registry
+from ..core.config import WORKSPACE_ROOT
+from ..utils.graph_utils import get_memory_dir
 
 
 class AgentState(TypedDict):
-    user_message: str
-    folder_path: Optional[str]
-    tools_description: str
-    tool_definitions: List[dict]
-    scan_result: Optional[str]
-    canvas_commands: List[dict]
-    response_message: str
+    messages: List[BaseMessage]
+    project_path: str
+    plan: List[dict]
+    current_step: int
+    memory_dir: str
+    canvas_nodes: list
+    canvas_edges: list
+    should_stop: bool
+    api_url: str
+    api_key: str
+    model_name: str
+    profession: str
+    event_queue: Any
+    plan_complete: bool
 
 
-SendFunc = Callable[[dict], Awaitable[None]]
+PLAN_SYSTEM_PROMPT = """你是一位{profession}，正在分析一个代码项目。你可以使用以下技能/工具：
+
+{tools_description}
+
+## 你的任务
+根据用户的消息，制定一个执行计划。计划应该是一系列步骤，每个步骤调用一个工具来完成子任务。
+
+## 输出格式
+请严格按照以下JSON格式输出执行计划（只输出JSON，不要包含任何其他文字）：
+
+{{
+  "thought": "你的整体思考，简要说明你的分析策略",
+  "plan": [
+    {{
+      "step_number": 1,
+      "action": "工具名称",
+      "args": {{"参数名": "参数值"}},
+      "thought": "这一步的简短推理"
+    }}
+  ]
+}}
+
+注意：
+- 第一步通常是 scan_directory 来了解项目结构
+- 后续步骤根据扫描结果来决定
+- 计划步骤控制在3-8步之间
+- 只输出JSON，不要包含```json```等标记
+"""
+
+OBSERVE_PROMPT = """你是一位{profession}，正在分析一个代码项目。
+
+## 已执行的步骤和结果
+{execution_summary}
+
+## 当前状态
+- 当前步骤: {current_step}
+- 总步骤数: {total_steps}
+
+## 你的任务
+根据已执行步骤的结果，判断分析任务是否已经完成，或者是否需要调整计划。
+
+## 输出格式
+请严格按照以下JSON格式输出（只输出JSON，不要包含任何其他文字）：
+
+{{
+  "status": "complete",
+  "reflection": "你的反思，简要说明当前进展和下一步计划",
+  "new_plan": []
+}}
+
+如果status是"continue"，new_plan中的每个步骤格式与初始计划相同：
+{{
+  "step_number": 1,
+  "action": "工具名称",
+  "args": {{"参数名": "参数值"}},
+  "thought": "这一步的简短推理"
+}}
+
+注意：
+- 如果已经获得了足够的项目信息，status应为"complete"
+- 如果还需要更多信息，status应为"continue"并提供new_plan
+- 只输出JSON，不要包含```json```等标记
+"""
 
 
-def build_initial_state(user_message: str, folder_path: Optional[str] = None) -> AgentState:
-    return {
-        "user_message": user_message,
-        "folder_path": folder_path,
-        "tools_description": tool_registry.tools_description,
-        "tool_definitions": tool_registry.tool_definitions,
-        "scan_result": None,
-        "canvas_commands": [],
-        "response_message": "",
-    }
+def _push_event(event_queue, event: dict):
+    if event_queue is not None:
+        try:
+            event_queue.put_nowait(event)
+        except Exception:
+            pass
 
 
-async def process_user_input(state: AgentState, send_func: Optional[SendFunc] = None) -> AgentState:
-    user_message = state["user_message"]
-    folder_path = state.get("folder_path")
+def _extract_json(text: str) -> Optional[dict]:
+    if not text:
+        return None
 
-    scan_pattern = re.compile(r"(?:请分析|扫描|scan|分析)\s*(?:文件夹)?[：:\s]*(.+)", re.IGNORECASE)
-    match = scan_pattern.search(user_message)
+    text = text.strip()
 
-    target_path = folder_path
-    if match and not target_path:
-        target_path = match.group(1).strip().strip('"').strip("'")
-
-    if not target_path:
-        state["response_message"] = "请提供要分析的文件夹路径，或点击输入框左侧的 + 按钮选择文件夹。"
-        return state
-
-    import os
-    if not os.path.isdir(target_path):
-        state["response_message"] = f"路径不存在或不是有效目录: {target_path}"
-        return state
-
-    scan_result_json = await tool_registry.execute_tool("scan_directory", {"folder_path": target_path})
-    state["scan_result"] = scan_result_json
+    if text.startswith("```"):
+        lines = text.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines)
 
     try:
-        tree = json.loads(scan_result_json)
+        return json.loads(text)
     except json.JSONDecodeError:
-        state["response_message"] = f"扫描目录失败，无法解析结果。"
-        return state
+        pass
 
-    canvas_commands = _build_canvas_commands_from_tree(tree)
-    state["canvas_commands"] = canvas_commands
+    start = text.find('{')
+    end = text.rfind('}')
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(text[start:end + 1])
+        except json.JSONDecodeError:
+            pass
 
-    file_count = _count_files(tree)
-    dir_count = _count_dirs(tree)
-    state["response_message"] = (
-        f"已扫描目录: {target_path}\n"
-        f"发现 {dir_count} 个目录, {file_count} 个文件。"
-    )
+    return None
 
-    if send_func:
-        for cmd in canvas_commands:
-            await send_func({
-                "type": "canvas_command",
-                "command": cmd,
-            })
 
-    return state
+def _safe_id(path: str) -> str:
+    return hashlib.md5(path.encode()).hexdigest()[:12]
 
 
 def _build_canvas_commands_from_tree(tree: dict) -> List[dict]:
@@ -112,31 +169,361 @@ def _build_canvas_commands_from_tree(tree: dict) -> List[dict]:
             "cmd": "add_edge",
             "source": f"dir-{_safe_id(root_path)}",
             "target": node_id,
-            "label": "包含",
+            "label": "contains",
         })
 
     commands.append({"cmd": "layout"})
     return commands
 
 
-def _safe_id(path: str) -> str:
-    import hashlib
-    return hashlib.md5(path.encode()).hexdigest()[:12]
+def plan_node(state: AgentState) -> AgentState:
+    messages = state.get("messages", [])
+    event_queue = state.get("event_queue")
+    plan = state.get("plan", [])
+    current_step = state.get("current_step", 0)
+
+    if plan and current_step < len(plan):
+        _push_event(event_queue, {
+            "type": "thought",
+            "message": "Continuing with existing plan..."
+        })
+        return state
+
+    user_message = ""
+    for msg in reversed(messages):
+        if isinstance(msg, HumanMessage):
+            user_message = msg.content
+            break
+
+    if not user_message:
+        _push_event(event_queue, {
+            "type": "chat_response",
+            "message": "Unable to find user message."
+        })
+        state["plan"] = []
+        state["plan_complete"] = True
+        return state
+
+    _push_event(event_queue, {
+        "type": "thought",
+        "message": "Analyzing your request, formulating execution plan..."
+    })
+
+    tools_desc = tool_registry.tools_description
+    if not tools_desc:
+        tools_desc = "- scan_directory: Scan directory structure"
+
+    system_prompt = PLAN_SYSTEM_PROMPT.format(
+        profession=state.get("profession", "Software Engineer"),
+        tools_description=tools_desc,
+    )
+
+    try:
+        llm = ChatOpenAI(
+            base_url=state["api_url"],
+            api_key=state["api_key"],
+            model=state["model_name"],
+            temperature=0.3,
+            max_tokens=2000,
+        )
+
+        response = llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=f"User message: {user_message}\n\nProject path: {state.get('project_path', '')}\n\nPlease create an execution plan."),
+        ])
+
+        content = response.content if hasattr(response, 'content') else str(response)
+        plan_data = _extract_json(content)
+
+        if plan_data and "plan" in plan_data:
+            thought = plan_data.get("thought", "")
+            plan = plan_data.get("plan", [])
+
+            _push_event(event_queue, {
+                "type": "thought",
+                "message": thought,
+            })
+
+            _push_event(event_queue, {
+                "type": "plan",
+                "plan": plan,
+            })
+
+            state["plan"] = plan
+            state["current_step"] = 0
+
+            state["messages"] = list(messages) + [
+                AIMessage(content=f"Execution plan created:\n{json.dumps(plan, ensure_ascii=False, indent=2)}")
+            ]
+        else:
+            default_plan = [
+                {
+                    "step_number": 1,
+                    "action": "scan_directory",
+                    "args": {"folder_path": state.get("project_path", "")},
+                    "thought": "First scan the project directory structure to understand file organization",
+                }
+            ]
+
+            _push_event(event_queue, {
+                "type": "thought",
+                "message": "Using default plan: scan project directory first",
+            })
+            _push_event(event_queue, {
+                "type": "plan",
+                "plan": default_plan,
+            })
+
+            state["plan"] = default_plan
+            state["current_step"] = 0
+
+    except Exception as e:
+        _push_event(event_queue, {
+            "type": "error",
+            "message": f"Planning failed: {str(e)}"
+        })
+
+        default_plan = [
+            {
+                "step_number": 1,
+                "action": "scan_directory",
+                "args": {"folder_path": state.get("project_path", "")},
+                "thought": "Scan project directory structure",
+            }
+        ]
+        state["plan"] = default_plan
+        state["current_step"] = 0
+
+    return state
 
 
-def _count_files(tree: dict) -> int:
-    count = 0
-    for child in tree.get("children", []):
-        if child.get("type") == "file":
-            count += 1
-        elif child.get("type") == "directory":
-            count += _count_files(child)
-    return count
+def execute_node(state: AgentState) -> AgentState:
+    plan = state.get("plan", [])
+    event_queue = state.get("event_queue")
+    project_path = state.get("project_path", "")
+
+    if state.get("should_stop"):
+        return state
+
+    if not plan:
+        _push_event(event_queue, {
+            "type": "chat_response",
+            "message": "No executable plan."
+        })
+        return state
+
+    current_step = state.get("current_step", 0)
+
+    for i in range(current_step, len(plan)):
+        if state.get("should_stop"):
+            break
+
+        step = plan[i]
+        action = step.get("action", "")
+        args = step.get("args", {})
+        thought = step.get("thought", "")
+
+        _push_event(event_queue, {
+            "type": "tool_call",
+            "tool_name": action,
+            "args": args,
+            "thought": thought,
+        })
+
+        if "folder_path" not in args and project_path:
+            args["folder_path"] = project_path
+
+        try:
+            result_json = tool_registry.execute_tool_sync(action, args)
+
+            result_preview = result_json[:500] if len(result_json) > 500 else result_json
+            _push_event(event_queue, {
+                "type": "tool_result",
+                "tool_name": action,
+                "result": result_preview,
+            })
+
+            if action == "scan_directory":
+                try:
+                    tree = json.loads(result_json)
+                    canvas_commands = _build_canvas_commands_from_tree(tree)
+                    for cmd in canvas_commands:
+                        _push_event(event_queue, {
+                            "type": "canvas_command",
+                            "command": cmd,
+                        })
+                except Exception:
+                    pass
+
+            messages = list(state.get("messages", []))
+            messages.append(AIMessage(content=f"Executed tool {action}: {thought}\nResult preview: {result_preview}"))
+            state["messages"] = messages
+
+        except Exception as e:
+            _push_event(event_queue, {
+                "type": "tool_result",
+                "tool_name": action,
+                "result": f"Execution failed: {str(e)}",
+            })
+
+        state["current_step"] = i + 1
+
+    return state
 
 
-def _count_dirs(tree: dict) -> int:
-    count = 0
-    for child in tree.get("children", []):
-        if child.get("type") == "directory":
-            count += 1 + _count_dirs(child)
-    return count
+def observe_node(state: AgentState) -> AgentState:
+    event_queue = state.get("event_queue")
+    plan = state.get("plan", [])
+    current_step = state.get("current_step", 0)
+
+    if state.get("should_stop"):
+        _push_event(event_queue, {
+            "type": "chat_response",
+            "message": "Analysis stopped by user."
+        })
+        state["plan_complete"] = True
+        return state
+
+    if current_step >= len(plan):
+        try:
+            llm = ChatOpenAI(
+                base_url=state["api_url"],
+                api_key=state["api_key"],
+                model=state["model_name"],
+                temperature=0.3,
+                max_tokens=1000,
+            )
+
+            execution_summary_parts = []
+            for i, step in enumerate(plan):
+                execution_summary_parts.append(
+                    f"Step {i + 1}: {step.get('action', '')} - {step.get('thought', '')}"
+                )
+            execution_summary = "\n".join(execution_summary_parts)
+
+            observe_prompt = OBSERVE_PROMPT.format(
+                profession=state.get("profession", "Software Engineer"),
+                execution_summary=execution_summary,
+                current_step=current_step,
+                total_steps=len(plan),
+            )
+
+            response = llm.invoke([
+                SystemMessage(content=observe_prompt),
+                HumanMessage(content="Please evaluate current progress and decide next step."),
+            ])
+
+            content = response.content if hasattr(response, 'content') else str(response)
+            observe_data = _extract_json(content)
+
+            if observe_data:
+                status = observe_data.get("status", "complete")
+                reflection = observe_data.get("reflection", "")
+
+                _push_event(event_queue, {
+                    "type": "reflection",
+                    "message": reflection,
+                })
+
+                if status == "complete":
+                    state["plan_complete"] = True
+                    _push_event(event_queue, {
+                        "type": "chat_response",
+                        "message": f"Analysis complete. {reflection}",
+                    })
+                else:
+                    new_plan = observe_data.get("new_plan", [])
+                    if new_plan:
+                        state["plan"] = new_plan
+                        state["current_step"] = 0
+                        state["plan_complete"] = False
+                        _push_event(event_queue, {
+                            "type": "plan",
+                            "plan": new_plan,
+                        })
+                    else:
+                        state["plan_complete"] = True
+                        _push_event(event_queue, {
+                            "type": "chat_response",
+                            "message": f"Analysis complete. {reflection}",
+                        })
+            else:
+                state["plan_complete"] = True
+                _push_event(event_queue, {
+                    "type": "chat_response",
+                    "message": "Analysis complete.",
+                })
+
+        except Exception as e:
+            state["plan_complete"] = True
+            _push_event(event_queue, {
+                "type": "chat_response",
+                "message": f"Analysis complete (reflection phase encountered issue: {str(e)}).",
+            })
+    else:
+        state["plan_complete"] = False
+
+    return state
+
+
+def should_continue(state: AgentState) -> str:
+    if state.get("should_stop"):
+        return "end"
+    if state.get("plan_complete", False):
+        return "end"
+    if not state.get("plan"):
+        return "end"
+    return "plan"
+
+
+def build_agent_graph():
+    workflow = StateGraph(AgentState)
+
+    workflow.add_node("plan", plan_node)
+    workflow.add_node("execute", execute_node)
+    workflow.add_node("observe", observe_node)
+
+    workflow.set_entry_point("plan")
+    workflow.add_edge("plan", "execute")
+    workflow.add_edge("execute", "observe")
+    workflow.add_conditional_edges(
+        "observe",
+        should_continue,
+        {
+            "plan": "plan",
+            "end": END,
+        }
+    )
+
+    return workflow.compile()
+
+
+def build_initial_agent_state(
+    user_message: str,
+    project_path: str,
+    api_url: str,
+    api_key: str,
+    model_name: str,
+    profession: str = "Software Engineer",
+    event_queue: Any = None,
+) -> AgentState:
+    memory_dir = get_memory_dir(project_path, WORKSPACE_ROOT) if project_path else ""
+    if memory_dir:
+        os.makedirs(memory_dir, exist_ok=True)
+
+    return {
+        "messages": [HumanMessage(content=user_message)],
+        "project_path": project_path,
+        "plan": [],
+        "current_step": 0,
+        "memory_dir": memory_dir,
+        "canvas_nodes": [],
+        "canvas_edges": [],
+        "should_stop": False,
+        "api_url": api_url,
+        "api_key": api_key,
+        "model_name": model_name,
+        "profession": profession,
+        "event_queue": event_queue,
+        "plan_complete": False,
+    }
