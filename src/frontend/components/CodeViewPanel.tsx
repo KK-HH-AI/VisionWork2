@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { MapPin } from 'react-feather';
 import Editor from '@monaco-editor/react';
 import { getFileIcon } from '../utils/fileIcons';
 import { getMonacoLanguage } from '../utils/monacoLanguages';
@@ -44,7 +45,7 @@ export default function CodeViewPanel({
           <span>← 返回目录树</span>
         </button>
         <span className="code-view-title" title={codeViewNode?.data?.label}>
-          📍 {codeViewNode?.data?.label}
+          <MapPin size={14} /> {codeViewNode?.data?.label}
         </span>
       </div>
       <div className="code-file-list">

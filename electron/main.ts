@@ -3,7 +3,6 @@ import path from 'path';
 import fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
 import crypto from 'crypto';
-import http from 'http';
 import net from 'net';
 
 let mainWindow: BrowserWindow | null;
@@ -31,36 +30,6 @@ function findAvailablePort(): Promise<number> {
       // 关闭服务器并返回获取到的端口号
       server.close(() => resolve(port));
     });
-  });
-}
-
-/**
- * 轮询等待后端服务就绪（通过 `/docs` 端点）
- * @param port - 后端监听端口
- * @param timeout - 超时时间（毫秒），默认 10000
- * @returns 就绪后 resolve，超时则 reject
- */
-function waitForBackendReady(port: number, timeout = 10000): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const startTime = Date.now();
-    //使用setInterval设置轮询
-    const checkInterval = setInterval(() => {
-      if (Date.now() - startTime > timeout) {
-        //超时了，关闭定时器
-        clearInterval(checkInterval);
-        //反馈后端没有开启成功
-        reject(new Error(`Backend did not become ready within ${timeout}ms`));
-        return;
-      }
-      http.get(`http://127.0.0.1:${port}/docs`, (res) => {
-        if (res.statusCode === 200) {
-          clearInterval(checkInterval);
-          isBackendReady = true;
-          console.log('[Backend] Backend is ready');
-          resolve();
-        }
-      }).on('error', () => {});
-    }, 500);
   });
 }
 
@@ -146,12 +115,9 @@ async function createWindow() {
 
     //启动后端子进程
     await startPythonBackend(backendPort, backendToken);
-    console.log('[Main] Waiting for backend to be ready...');
+    isBackendReady = true;
+    console.log('[Main] Backend is ready');
 
-    //监听后端子程序是否可用，用轮询做，await代表阻塞
-    await waitForBackendReady(backendPort);
-
-    //用延时器设置后端启动后的等待时间
     await new Promise(resolve => setTimeout(resolve, 500));
 
     //创建主窗口

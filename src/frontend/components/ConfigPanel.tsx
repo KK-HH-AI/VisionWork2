@@ -1,4 +1,5 @@
 import React from 'react';
+import { Check } from 'react-feather';
 
 interface ConfigPanelProps {
   profession: string;
@@ -63,7 +64,7 @@ export default function ConfigPanel({
         />
       </div>
       {configSaved && (
-        <div className="config-saved-hint">✅ 配置已自动保存</div>
+        <div className="config-saved-hint"><Check size={14} /> 配置已自动保存</div>
       )}
     </div>
   );
