@@ -3,6 +3,11 @@ import yaml
 from typing import Dict, Any, List, Optional
 from .base import BaseTool
 from .scan import ScanDirectoryTool
+from .read_file import ReadFileTool
+from .analyze_module import AnalyzeModuleTool
+from .draw_relation import DrawRelationTool
+from .search_memory import SearchMemoryTool
+from .final_answer import FinalAnswerTool
 
 
 class ToolRegistry:
@@ -41,7 +46,14 @@ class ToolRegistry:
                 pass
 
     def _register_tools(self):
-        tool_classes = [ScanDirectoryTool]
+        tool_classes = [
+            ScanDirectoryTool,
+            ReadFileTool,
+            AnalyzeModuleTool,
+            DrawRelationTool,
+            SearchMemoryTool,
+            FinalAnswerTool,
+        ]
         for tool_cls in tool_classes:
             tool_instance = tool_cls()
             self._tools[tool_instance.name] = tool_instance

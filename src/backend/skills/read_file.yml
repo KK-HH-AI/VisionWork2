@@ -1,0 +1,7 @@
+name: read_file
+description: 读取指定文件的源代码内容，返回内容摘要（截断大文件）。用于了解单个文件的代码实现。
+parameters:
+  filepath:
+    type: string
+    description: 要读取的文件的绝对路径
+    required: true
