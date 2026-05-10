@@ -1,5 +1,20 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNodesState, useEdgesState, type Node, type Edge } from 'reactflow';
+import {
+  Sun,
+  Moon,
+  Folder,
+  ChevronDown,
+  ChevronRight,
+  Play,
+  Square,
+  AlertTriangle,
+  BarChart2,
+  FileText,
+  Check,
+  Save,
+  RefreshCw,
+} from 'react-feather';
 import useWebSocket from './hooks/useWebSocket';
 import DirectoryTree from './components/DirectoryTree';
 import MemoryGraph from './components/MemoryGraph';
@@ -477,7 +492,7 @@ export default function App() {
         <h1>VisionWork2</h1>
         <div className="header-right">
           <button className="btn-theme-toggle" onClick={toggleTheme} title="切换主题">
-            {theme === 'dark' ? '☀️' : '🌙'}
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
           <div className={`status ${connected ? 'connected' : 'disconnected'}`}>
             {connected ? '已连接' : '未连接'}
@@ -490,13 +505,13 @@ export default function App() {
           <div className="sidebar-header">
             <h2>项目目录</h2>
             <button className="btn-select" onClick={handleSelectFolder}>
-              <span className="btn-icon">📂</span>
+              <Folder size={16} />
               <span>选择文件夹</span>
             </button>
           </div>
 
           <div className="config-toggle" onClick={() => setShowConfig(!showConfig)}>
-            <span className="config-toggle-icon">{showConfig ? '▼' : '▶'}</span>
+            <span className="config-toggle-icon">{showConfig ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
             <span>模型配置</span>
           </div>
 
@@ -515,13 +530,6 @@ export default function App() {
             />
           )}
 
-          {currentPath && (
-            <div className="current-path">
-              <span className="path-icon">📍</span>
-              <span className="path-text" title={currentPath}>{currentPath}</span>
-            </div>
-          )}
-
           <div
             className={`drop-zone ${isDragging ? 'dragging' : ''} ${directoryTree ? 'has-tree' : ''}`}
             onDrop={handleDrop}
@@ -530,7 +538,7 @@ export default function App() {
           >
             {!directoryTree && !codeViewNode && (
               <div className="drop-placeholder">
-                <div className="drop-icon">📂</div>
+                <Folder size={48} />
                 <p className="drop-title">拖入项目文件夹</p>
                 <p className="drop-hint">或将文件夹拖放到此处</p>
               </div>
@@ -571,12 +579,12 @@ export default function App() {
               <div className="btn-group">
                 {isAnalyzing ? (
                   <button className="btn-analyze btn-analyze-danger" onClick={stopAnalysis}>
-                    <span className="btn-icon">⛔</span>
+                    <Square size={16} />
                     <span>停止分析</span>
                   </button>
                 ) : (
                   <button className="btn-analyze btn-analyze-primary" onClick={startLLMAnalysis}>
-                    <span className="btn-icon">🚀</span>
+                    <Play size={16} />
                     <span>开始分析</span>
                   </button>
                 )}
@@ -586,7 +594,7 @@ export default function App() {
 
           {error && (
             <div className="error-message">
-              <span className="error-icon">⚠️</span>
+              <AlertTriangle size={16} />
               <span>{error}</span>
             </div>
           )}
@@ -650,7 +658,7 @@ export default function App() {
                     />
                   ) : (
                     <div className="memory-notes-empty">
-                      <div className="empty-icon">📊</div>
+                      <BarChart2 size={48} />
                       <p>暂无图谱</p>
                       <p className="empty-hint">选择项目文件夹并开始分析后，智能体会生成记忆图谱</p>
                     </div>
@@ -665,7 +673,7 @@ export default function App() {
                       ? `${(() => { let c = 0; for (const item of workspaceTree) { if (item.type === 'file') c++; else if (item.children) { for (const child of item.children) { if (child.type === 'file') c++; else if (child.children) c += child.children.filter(cc => cc.type === 'file').length; } } } return c; })()} 个笔记文件`
                       : '选择项目文件夹即可查看'}
                     <button className="btn-refresh-tree" onClick={loadMemoryDirByPath} title="刷新文件树">
-                      🔄
+                      <RefreshCw size={14} />
                     </button>
                   </span>
                 </div>
@@ -684,14 +692,15 @@ export default function App() {
                   ← 返回
                 </button>
                 <span className="memory-note-title" title={selectedMemoryNote?.name}>
-                  📝 {selectedMemoryNote?.name}
+                  <FileText size={16} />
+                  {' '}{selectedMemoryNote?.name}
                 </span>
                 <button
                   className="btn-save"
                   onClick={handleSaveMemoryNote}
                   disabled={memoryNoteSaving}
                 >
-                  {memoryNoteSaving ? '保存中...' : memoryNoteSaved ? '✅ 已保存' : '💾 保存'}
+                  {memoryNoteSaving ? '保存中...' : memoryNoteSaved ? <><Check size={14} /> 已保存</> : <><Save size={14} /> 保存</>}
                 </button>
               </div>
               <div className="memory-note-body">

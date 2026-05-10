@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Folder, FolderMinus } from 'react-feather';
 import { getFileIcon } from '../utils/fileIcons';
 import type { DirectoryNode } from '../types';
 
@@ -25,7 +26,7 @@ export default function DirectoryTree({ node, depth = 0 }: DirectoryTreeProps) {
         onClick={toggle}
       >
         <span className="tree-icon">
-          {isDirectory ? (expanded ? '📂' : '📁') : getFileIcon(node.name)}
+          {isDirectory ? (expanded ? <FolderMinus size={14} /> : <Folder size={14} />) : getFileIcon(node.name)}
         </span>
         <span className="tree-name">{node.name}</span>
       </div>

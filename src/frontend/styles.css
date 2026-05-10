@@ -249,29 +249,8 @@ body.theme-light .status.disconnected {
   transform: translateY(0);
 }
 
-.btn-icon {
-  font-size: 1rem;
-}
-
-.current-path {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 18px;
-  font-size: 0.75rem;
-  color: var(--text-tertiary);
-  border-bottom: 1px solid var(--border-color);
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.path-icon {
-  font-size: 0.9rem;
-}
-
-.path-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.btn-select svg {
+  flex-shrink: 0;
 }
 
 .drop-zone {
@@ -297,10 +276,10 @@ body.theme-light .status.disconnected {
   text-align: center;
 }
 
-.drop-icon {
-  font-size: 3.5rem;
+.drop-placeholder svg {
   margin-bottom: 16px;
-  opacity: 0.8;
+  opacity: 0.6;
+  color: var(--text-tertiary);
 }
 
 .drop-title {
@@ -334,8 +313,13 @@ body.theme-light .status.disconnected {
 
 .tree-icon {
   margin-right: 8px;
-  font-size: 1rem;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.tree-icon svg {
+  display: block;
 }
 
 .tree-name {
@@ -365,8 +349,9 @@ body.theme-light .status.disconnected {
   border: 1px solid rgba(255, 107, 107, 0.2);
 }
 
-.error-icon {
-  font-size: 1rem;
+.error-message svg {
+  flex-shrink: 0;
+  color: #ff6b6b;
 }
 
 .content-area {
@@ -511,9 +496,14 @@ body.theme-light .status.disconnected {
 }
 
 .tree-icon {
-  font-size: 1rem;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
   transition: transform 0.2s ease;
+}
+
+.tree-icon svg {
+  display: block;
 }
 
 .tree-item-header:hover .tree-icon {
@@ -550,10 +540,10 @@ body.theme-light .status.disconnected {
   text-align: center;
 }
 
-.empty-icon {
-  font-size: 2.5rem;
+.memory-notes-empty svg {
   margin-bottom: 12px;
-  opacity: 0.5;
+  opacity: 0.4;
+  color: var(--text-tertiary);
 }
 
 .memory-notes-empty p {
@@ -967,6 +957,14 @@ body.theme-light .graph-header {
   color: #52b788;
   padding: 6px 0;
   animation: fadeInOut 2s ease-in-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.config-saved-hint svg {
+  flex-shrink: 0;
 }
 
 @keyframes fadeInOut {
@@ -1077,6 +1075,15 @@ body.theme-light .graph-header {
 .btn-analyze:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.btn-analyze svg,
+.btn-save svg,
+.btn-back svg,
+.btn-select svg,
+.btn-theme-toggle svg,
+.btn-refresh-tree svg {
+  flex-shrink: 0;
 }
 
 .placeholder-content {
@@ -1274,6 +1281,13 @@ body.theme-light .code-view-header {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.code-view-title svg {
+  flex-shrink: 0;
 }
 
 .code-file-list {
@@ -1312,8 +1326,13 @@ body.theme-light .code-view-header {
 }
 
 .code-file-icon {
-  font-size: 0.9rem;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.code-file-icon svg {
+  display: block;
 }
 
 .code-file-name {

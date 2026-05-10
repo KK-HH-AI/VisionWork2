@@ -1,4 +1,5 @@
 import React from 'react';
+import { Folder, FolderMinus, FileText } from 'react-feather';
 import type { WorkspaceItem } from '../types';
 
 interface WorkspaceTreeProps {
@@ -36,7 +37,7 @@ export default function WorkspaceTree({
               className="tree-item-header tree-dir"
               onClick={() => onToggleDir(item.path)}
             >
-              <span className="tree-icon">{isExpanded ? '📂' : '📁'}</span>
+              <span className="tree-icon">{isExpanded ? <FolderMinus size={14} /> : <Folder size={14} />}</span>
               <span className="tree-name">{item.name}</span>
             </div>
             {isExpanded && item.children && item.children.length > 0 && (
@@ -53,7 +54,7 @@ export default function WorkspaceTree({
             className="tree-item tree-file"
             onClick={() => onNoteClick(item)}
           >
-            <span className="tree-icon">📝</span>
+            <span className="tree-icon"><FileText size={14} /></span>
             <span className="tree-name" title={item.name}>{item.name}</span>
           </div>
         );
