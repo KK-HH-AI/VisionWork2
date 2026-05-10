@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send } from 'react-feather';
+import { Send, FolderPlus, X, Folder } from 'react-feather';
 
 interface ChatMessage {
   id: string;
@@ -12,9 +12,21 @@ interface ChatViewProps {
   connected: boolean;
   sendMessage: (message: unknown) => void;
   messages: ChatMessage[];
+  onSelectFolder?: () => void;
+  scanTag?: string | null;
+  onClearScanTag?: () => void;
+  onViewFileTree?: () => void;
 }
 
-export default function ChatView({ connected, sendMessage, messages }: ChatViewProps) {
+export default function ChatView({
+  connected,
+  sendMessage,
+  messages,
+  onSelectFolder,
+  scanTag,
+  onClearScanTag,
+  onViewFileTree,
+}: ChatViewProps) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -46,6 +58,12 @@ export default function ChatView({ connected, sendMessage, messages }: ChatViewP
     [handleSend]
   );
 
+  const handleSelectFolder = useCallback(() => {
+    if (onSelectFolder) {
+      onSelectFolder();
+    }
+  }, [onSelectFolder]);
+
   return (
     <div className="chat-view">
       <div className="chat-messages">
@@ -62,7 +80,33 @@ export default function ChatView({ connected, sendMessage, messages }: ChatViewP
         )}
         <div ref={messagesEndRef} />
       </div>
+      {scanTag && (
+        <div className="scan-tag-bar">
+          <div className="scan-tag">
+            <Folder size={14} />
+            <span className="scan-tag-path" title={scanTag}>{scanTag}</span>
+            {onViewFileTree && (
+              <button className="btn-scan-action" onClick={onViewFileTree} title="查看文件树">
+                查看文件树
+              </button>
+            )}
+            {onClearScanTag && (
+              <button className="btn-scan-close" onClick={onClearScanTag} title="清除">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       <div className="chat-input-area">
+        <button
+          className="btn-folder-select"
+          onClick={handleSelectFolder}
+          disabled={!connected}
+          title="选择文件夹"
+        >
+          <FolderPlus size={18} />
+        </button>
         <textarea
           ref={inputRef}
           className="chat-input"
