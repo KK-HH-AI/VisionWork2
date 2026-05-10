@@ -94,6 +94,13 @@ export interface WSMessage {
   command?: CanvasCommand;
 }
 
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+}
+
 export interface MessageHandlers {
   onDirectoryTree?: (msg: WSMessage) => void;
   onMemoryGraph?: (msg: WSMessage) => void;
@@ -103,4 +110,5 @@ export interface MessageHandlers {
   onMemoryPathUpdate?: (msg: WSMessage) => void;
   onStopped?: (msg: WSMessage) => void;
   onError?: (msg: string | WSMessage) => void;
+  onChatResponse?: (msg: WSMessage) => void;
 }
