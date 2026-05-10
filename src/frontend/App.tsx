@@ -67,6 +67,70 @@ export default function App() {
         },
       ]);
     },
+    onThought: (msg: WSMessage) => {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: nextMsgId(),
+          role: 'assistant',
+          content: `💭 ${msg.message || ''}`,
+          timestamp: Date.now(),
+        },
+      ]);
+    },
+    onPlan: (msg: WSMessage) => {
+      const plan = msg.plan;
+      if (plan && plan.length > 0) {
+        const planText = plan
+          .map((step) => `${step.step_number}. **${step.action}** - ${step.thought}`)
+          .join('\n');
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: nextMsgId(),
+            role: 'assistant',
+            content: `📋 **Execution Plan:**\n${planText}`,
+            timestamp: Date.now(),
+          },
+        ]);
+      }
+    },
+    onToolCall: (msg: WSMessage) => {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: nextMsgId(),
+          role: 'assistant',
+          content: `🔧 Calling tool: **${msg.tool_name || ''}**\n> ${msg.thought || ''}`,
+          timestamp: Date.now(),
+        },
+      ]);
+    },
+    onToolResult: (msg: WSMessage) => {
+      const resultPreview = typeof msg.result === 'string'
+        ? msg.result.substring(0, 200)
+        : '';
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: nextMsgId(),
+          role: 'assistant',
+          content: `✅ Tool **${msg.tool_name || ''}** completed.\n\`\`\`\n${resultPreview}${resultPreview.length >= 200 ? '...' : ''}\n\`\`\``,
+          timestamp: Date.now(),
+        },
+      ]);
+    },
+    onReflection: (msg: WSMessage) => {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: nextMsgId(),
+          role: 'assistant',
+          content: `🔄 ${msg.message || ''}`,
+          timestamp: Date.now(),
+        },
+      ]);
+    },
     onError: (msg: string | WSMessage) => {
       const errorText = typeof msg === 'string' ? msg : msg.message || '';
       if (errorText) {
@@ -75,7 +139,7 @@ export default function App() {
           {
             id: nextMsgId(),
             role: 'assistant',
-            content: `错误: ${errorText}`,
+            content: `❌ Error: ${errorText}`,
             timestamp: Date.now(),
           },
         ]);
@@ -120,6 +184,18 @@ export default function App() {
     }
   }, [profession, apiUrl, apiKey, modelName]);
 
+  useEffect(() => {
+    if (connected && apiUrl && apiKey) {
+      sendMessage({
+        type: 'set_config',
+        api_url: apiUrl,
+        api_key: apiKey,
+        model_name: modelName,
+        profession: profession,
+      });
+    }
+  }, [connected, apiUrl, apiKey, modelName, profession, sendMessage]);
+
   const handleSendMessage = useCallback(
     (message: unknown) => {
       const msg = message as { type: string; content: string };
@@ -133,10 +209,19 @@ export default function App() {
             timestamp: Date.now(),
           },
         ]);
+        sendMessage({
+          type: 'chat_message',
+          content: msg.content,
+          api_url: apiUrl,
+          api_key: apiKey,
+          model_name: modelName,
+          profession: profession,
+        });
+      } else {
+        sendMessage(message);
       }
-      sendMessage(message);
     },
-    [sendMessage]
+    [sendMessage, apiUrl, apiKey, modelName, profession]
   );
 
   const handleNewSession = useCallback(() => {
@@ -180,19 +265,23 @@ export default function App() {
           {
             id: nextMsgId(),
             role: 'user',
-            content: `请分析文件夹：${folderPath}`,
+            content: `Please analyze folder: ${folderPath}`,
             timestamp: Date.now(),
           },
         ]);
         sendMessage({
           type: 'scan_request',
           path: folderPath,
+          api_url: apiUrl,
+          api_key: apiKey,
+          model_name: modelName,
+          profession: profession,
         });
       }
     } catch (err) {
       console.error('Failed to select folder:', err);
     }
-  }, [sendMessage]);
+  }, [sendMessage, apiUrl, apiKey, modelName, profession]);
 
   const handleClearScanTag = useCallback(() => {
     setScanTag(null);
