@@ -10,25 +10,45 @@ let mainWindow: BrowserWindow | null;
 let pythonProcess: ChildProcess | null;
 let backendPort: number;
 let backendToken: string;
-let isBackendReady = false;
+let isBackendReady = false;//代表后端是否启动成功的标志
 
+/**
+ * 查找当前可用的端口号
+ * 创建一个临时服务器并监听0端口，系统会自动分配一个可用的端口号
+ * @returns 返回一个Promise，解析值为可用的端口号
+ */
 function findAvailablePort(): Promise<number> {
   return new Promise((resolve) => {
+    // 创建一个新的服务器实例
     const server = net.createServer();
+    // 监听0端口，系统会自动分配一个可用的端口号
+    // '127.0.0.1' 指定本地回环地址
     server.listen(0, '127.0.0.1', () => {
+      // 获取服务器的地址信息
       const addr = server.address();
+      // 提取端口号，处理地址对象可能为null的情况
       const port = typeof addr === 'object' && addr ? addr.port : 0;
+      // 关闭服务器并返回获取到的端口号
       server.close(() => resolve(port));
     });
   });
 }
 
+/**
+ * 轮询等待后端服务就绪（通过 `/docs` 端点）
+ * @param port - 后端监听端口
+ * @param timeout - 超时时间（毫秒），默认 10000
+ * @returns 就绪后 resolve，超时则 reject
+ */
 function waitForBackendReady(port: number, timeout = 10000): Promise<void> {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
+    //使用setInterval设置轮询
     const checkInterval = setInterval(() => {
       if (Date.now() - startTime > timeout) {
+        //超时了，关闭定时器
         clearInterval(checkInterval);
+        //反馈后端没有开启成功
         reject(new Error(`Backend did not become ready within ${timeout}ms`));
         return;
       }
@@ -44,18 +64,30 @@ function waitForBackendReady(port: number, timeout = 10000): Promise<void> {
   });
 }
 
+/**
+ * 启动 Python 后端服务
+ * 根据端口和令牌启动 main.py 子进程，监听 stdout 判断启动完成
+ * @param port - 后端监听端口
+ * @param token - 认证令牌
+ * @returns 启动成功时 resolve，进程出错或超时则 reject
+ */
 function startPythonBackend(port: number, token: string): Promise<void> {
   return new Promise((resolve, reject) => {
+    //获得python的环境变量
     const pythonPath = process.env.PYTHON_PATH || 'python';
+    //拼接后端主程序的文件路径
     const scriptPath = path.join(__dirname, '..', 'src', 'backend', 'main.py');
 
+    //启动python后端进程，并设置python环境变量
     pythonProcess = spawn(pythonPath, [scriptPath, '--port', String(port), '--token', token], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      //PYTHONIOENCODING 是 Python 专用的一个环境变量，用来控制 Python 解释器输入输出（stdin/stdout/stderr）的编码。
       env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
     });
 
     let backendOutput = '';
 
+    //后端正常输出
     pythonProcess.stdout?.on('data', (data: Buffer) => {
       const str = data.toString();
       backendOutput += str;
@@ -65,17 +97,20 @@ function startPythonBackend(port: number, token: string): Promise<void> {
       }
     });
 
+    //监听后端标准错误输出流（可读流）
     pythonProcess.stderr?.on('data', (data: Buffer) => {
       const str = data.toString();
       backendOutput += str;
       console.error(`[Backend Error] ${str.trim()}`);
     });
 
+    //无法创建python子进程时
     pythonProcess.on('error', (err: Error) => {
       console.error(`[Backend] Failed to start: ${err.message}`);
       reject(err);
     });
 
+    //监听后端进程是否退出
     pythonProcess.on('exit', (code: number | null) => {
       console.log(`[Backend] Process exited with code ${code}`);
       isBackendReady = false;
@@ -86,7 +121,8 @@ function startPythonBackend(port: number, token: string): Promise<void> {
         mainWindow.webContents.send('backend-exited', { code });
       }
     });
-
+    
+    //后端进程启动超过15s，任务启动失败
     setTimeout(() => {
       if (!isBackendReady) {
         reject(new Error('Backend startup timeout'));
@@ -95,19 +131,30 @@ function startPythonBackend(port: number, token: string): Promise<void> {
   });
 }
 
+/**
+ * 启动electron项目
+ * @returns 启动成功时 resolve，进程出错或超时则 reject
+ */
 async function createWindow() {
   try {
+    //系统为后端进程随机分配一个空闲端口
     backendPort = await findAvailablePort();
+    //用 crypto.randomBytes(16) 生成 16 字节的随机数据，再转为十六进制字符串（32 个字符），作为
+    //作为后端 API 的简单认证令牌
     backendToken = crypto.randomBytes(16).toString('hex');
-
     console.log(`[Main] Starting backend on port ${backendPort}...`);
-    await startPythonBackend(backendPort, backendToken);
 
+    //启动后端子进程
+    await startPythonBackend(backendPort, backendToken);
     console.log('[Main] Waiting for backend to be ready...');
+
+    //监听后端子程序是否可用，用轮询做，await代表阻塞
     await waitForBackendReady(backendPort);
 
+    //用延时器设置后端启动后的等待时间
     await new Promise(resolve => setTimeout(resolve, 500));
 
+    //创建主窗口
     mainWindow = new BrowserWindow({
       width: 1400,
       height: 900,
@@ -120,8 +167,10 @@ async function createWindow() {
 
     const isDev = true;
 
+    //打开前端渲染进程
     if (isDev || process.env.NODE_ENV === 'development' || process.env.VITE_DEV_SERVER_URL) {
       mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173');
+      //同时开启开发者工具
       mainWindow.webContents.openDevTools();
     } else {
       mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
@@ -137,6 +186,10 @@ async function createWindow() {
   }
 }
 
+/**
+ * 优雅关闭 Python 后端进程
+ * 先发送 SIGTERM，3 秒内未退出则强杀，最后清理状态
+ */
 async function shutdownBackend() {
   if (!pythonProcess) {
     return;
@@ -170,8 +223,11 @@ async function shutdownBackend() {
   console.log('[Main] Backend shutdown complete');
 }
 
+//以下为Electron的主入口程序（调用层）
+//应用启动就绪后创建窗口
 app.whenReady().then(createWindow);
 
+//注册一个处理器，在所有窗口都关闭时触发，关闭后端进程
 app.on('window-all-closed', async () => {
   await shutdownBackend();
   if (process.platform !== 'darwin') {
@@ -179,6 +235,7 @@ app.on('window-all-closed', async () => {
   }
 });
 
+//注册一个处理器，在应用即将退出时触发，关闭后端进程
 app.on('before-quit', async (event) => {
   if (pythonProcess && pythonProcess.exitCode === null) {
     event.preventDefault();
@@ -187,17 +244,20 @@ app.on('before-quit', async (event) => {
   }
 });
 
+//注册一个处理器，当用户点击 macOS Dock 图标或应用被重新激活时触发。
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
 });
 
+//注册一个 IPC 接口，当渲染进程（前端）调用 ipcRenderer.invoke('get-backend-config') 时才执行，返回后端配置
 ipcMain.handle('get-backend-config', () => {
   console.log(`[Main] get-backend-config called: port=${backendPort}, token=${backendToken}, ready=${isBackendReady}`);
   return { port: backendPort, token: backendToken, ready: isBackendReady };
 });
 
+//注册一个 IPC 接口，前端请求选择文件夹时才弹出系统对话
 ipcMain.handle('select-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openDirectory']
@@ -209,6 +269,7 @@ ipcMain.handle('select-folder', async () => {
   return null;
 });
 
+//注册一个 IPC 接口，前端请求读取文件时才执行，返回文件内容
 ipcMain.handle('read-file', async (_event, filePath: string) => {
   try {
     if (!fs.existsSync(filePath)) {
@@ -216,9 +277,10 @@ ipcMain.handle('read-file', async (_event, filePath: string) => {
     }
     const stat = fs.statSync(filePath);
     if (stat.size > 5 * 1024 * 1024) {
+      //限制文件最大为 5 MB
       return { success: false, error: '文件过大（超过5MB）' };
     }
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const content = fs.readFileSync(filePath, 'utf-8');//执行读取文件内容操作，这是node.js的模块，可以操作文件系统
     return { success: true, content, size: stat.size };
   } catch (err) {
     return { success: false, error: (err as Error).message };
