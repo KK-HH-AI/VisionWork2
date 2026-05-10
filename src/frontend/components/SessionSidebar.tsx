@@ -6,6 +6,8 @@ interface SessionSidebarProps {
   onClose: () => void;
   onNewSession: () => void;
   onOpenConfig: () => void;
+  width: number;
+  onResizeStart: (e: React.MouseEvent) => void;
 }
 
 export default function SessionSidebar({
@@ -13,13 +15,18 @@ export default function SessionSidebar({
   onClose,
   onNewSession,
   onOpenConfig,
+  width,
+  onResizeStart,
 }: SessionSidebarProps) {
   return (
     <>
       {isOpen && (
         <div className="session-sidebar-overlay" onClick={onClose} />
       )}
-      <div className={`session-sidebar ${isOpen ? 'open' : ''}`}>
+      <div
+        className={`session-sidebar ${isOpen ? 'open' : ''}`}
+        style={{ width: `${width}px` }}
+      >
         <div className="session-sidebar-header">
           <h2>会话</h2>
           <button className="btn-new-session" onClick={onNewSession} title="新建会话">
@@ -35,6 +42,10 @@ export default function SessionSidebar({
             <span>配置</span>
           </button>
         </div>
+        <div
+          className="sidebar-resize-handle"
+          onMouseDown={onResizeStart}
+        />
       </div>
     </>
   );

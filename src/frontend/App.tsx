@@ -40,6 +40,7 @@ export default function App() {
   const [showConfig, setShowConfig] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [scanTag, setScanTag] = useState<string | null>(null);
+  const [rightPanelInitialTab, setRightPanelInitialTab] = useState<'notes' | 'files' | undefined>(undefined);
 
   const [profession, setProfession] = useState('软件工程师');
   const [apiUrl, setApiUrl] = useState('https://api.openai.com/v1');
@@ -48,7 +49,11 @@ export default function App() {
   const [configSaved, setConfigSaved] = useState(false);
 
   const [chatWidth, setChatWidth] = useState(45);
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [rightPanelWidth, setRightPanelWidth] = useState(300);
   const isDraggingCenterRef = useRef(false);
+  const isDraggingSidebarRef = useRef(false);
+  const isDraggingRightPanelRef = useRef(false);
 
   const messageHandlers = {
     onChatResponse: (msg: WSMessage) => {
@@ -78,7 +83,7 @@ export default function App() {
     },
   };
 
-  const { connected, sendMessage } = useWebSocket(messageHandlers);
+  const { connected, sendMessage, backendPortRef } = useWebSocket(messageHandlers);
 
   useEffect(() => {
     try {
@@ -194,6 +199,7 @@ export default function App() {
   }, []);
 
   const handleViewFileTree = useCallback(() => {
+    setRightPanelInitialTab('files');
     setRightPanelOpen(true);
   }, []);
 
@@ -229,6 +235,52 @@ export default function App() {
     document.body.style.userSelect = 'none';
   }, []);
 
+  const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingSidebarRef.current = true;
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDraggingSidebarRef.current) return;
+      const delta = ev.clientX - startX;
+      setSidebarWidth(Math.max(200, Math.min(500, startWidth + delta)));
+    };
+    const handleMouseUp = () => {
+      isDraggingSidebarRef.current = false;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [sidebarWidth]);
+
+  const handleRightPanelResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRightPanelRef.current = true;
+    const startX = e.clientX;
+    const startWidth = rightPanelWidth;
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!isDraggingRightPanelRef.current) return;
+      const delta = startX - ev.clientX;
+      setRightPanelWidth(Math.max(200, Math.min(500, startWidth + delta)));
+    };
+    const handleMouseUp = () => {
+      isDraggingRightPanelRef.current = false;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [rightPanelWidth]);
+
   return (
     <div className="app-container">
       <div className="top-bar">
@@ -262,11 +314,18 @@ export default function App() {
         onClose={() => setSessionSidebarOpen(false)}
         onNewSession={handleNewSession}
         onOpenConfig={handleOpenConfig}
+        width={sidebarWidth}
+        onResizeStart={handleSidebarResizeStart}
       />
 
       <RightPanel
         isOpen={rightPanelOpen}
         onClose={() => setRightPanelOpen(false)}
+        scanTag={scanTag}
+        backendPort={backendPortRef.current}
+        initialTab={rightPanelInitialTab}
+        width={rightPanelWidth}
+        onResizeStart={handleRightPanelResizeStart}
       />
 
       {showConfig && (
