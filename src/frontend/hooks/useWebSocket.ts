@@ -94,6 +94,10 @@ export default function useWebSocket(onMessageHandlers: MessageHandlers) {
             flushSync(() => {
               if (onMessageHandlers.onError) onMessageHandlers.onError(message.message || '');
             });
+          } else if (message.type === 'chat_response') {
+            flushSync(() => {
+              if (onMessageHandlers.onChatResponse) onMessageHandlers.onChatResponse(message);
+            });
           } else if (message.type === 'pong') {
           }
         };
