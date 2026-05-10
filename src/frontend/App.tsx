@@ -39,6 +39,7 @@ export default function App() {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [scanTag, setScanTag] = useState<string | null>(null);
 
   const [profession, setProfession] = useState('软件工程师');
   const [apiUrl, setApiUrl] = useState('https://api.openai.com/v1');
@@ -135,7 +136,65 @@ export default function App() {
 
   const handleNewSession = useCallback(() => {
     setChatMessages([]);
+    setScanTag(null);
     setSessionSidebarOpen(false);
+  }, []);
+
+  const handleSelectFolder = useCallback(async () => {
+    try {
+      let folderPath: string | null = null;
+
+      if (window.electronAPI) {
+        folderPath = await window.electronAPI.selectFolder();
+      } else if (window.showDirectoryPicker) {
+        const handle = await window.showDirectoryPicker();
+        folderPath = handle.name;
+      } else {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.webkitdirectory = true;
+        folderPath = await new Promise<string | null>((resolve) => {
+          input.onchange = () => {
+            const files = input.files;
+            if (files && files.length > 0) {
+              const firstFile = files[0];
+              const relativePath = firstFile.webkitRelativePath || firstFile.name;
+              resolve(relativePath.split('/')[0] || relativePath);
+            } else {
+              resolve(null);
+            }
+          };
+          input.click();
+        });
+      }
+
+      if (folderPath) {
+        setScanTag(folderPath);
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: nextMsgId(),
+            role: 'user',
+            content: `请分析文件夹：${folderPath}`,
+            timestamp: Date.now(),
+          },
+        ]);
+        sendMessage({
+          type: 'scan_request',
+          path: folderPath,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to select folder:', err);
+    }
+  }, [sendMessage]);
+
+  const handleClearScanTag = useCallback(() => {
+    setScanTag(null);
+  }, []);
+
+  const handleViewFileTree = useCallback(() => {
+    setRightPanelOpen(true);
   }, []);
 
   const handleOpenConfig = useCallback(() => {
@@ -239,6 +298,10 @@ export default function App() {
             connected={connected}
             sendMessage={handleSendMessage}
             messages={chatMessages}
+            onSelectFolder={handleSelectFolder}
+            scanTag={scanTag}
+            onClearScanTag={handleClearScanTag}
+            onViewFileTree={handleViewFileTree}
           />
         </div>
         <div className="center-resize-handle" onMouseDown={handleCenterMouseDown} />
