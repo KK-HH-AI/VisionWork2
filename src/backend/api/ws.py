@@ -5,7 +5,7 @@ import threading
 import re
 from fastapi import WebSocket, WebSocketDisconnect
 from ..services.scanner import build_directory_tree
-from ..services.analyzer import run_llm_analysis, should_stop
+from ..services.analyzer import should_stop
 from ..services.simulator import run_simulated_analysis
 from ..agent.graph import build_initial_agent_state, build_agent_graph
 
@@ -104,11 +104,21 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
                     })
                     continue
 
-                print(f"[Backend] Starting analysis task with stop_flag: {stop_flag}")
+                print(f"[Backend] Starting agent analysis with stop_flag: {stop_flag}")
+                import uuid
+                current_agent_stop_flag = stop_flag if stop_flag else str(uuid.uuid4())[:8]
+                agent_stop_flags[current_agent_stop_flag] = False
+
                 analysis_task = asyncio.create_task(
-                    run_llm_analysis(
-                        websocket, folder_path, profession,
-                        api_url, api_key, model_name, stop_flag
+                    _run_agent_loop(
+                        websocket,
+                        user_message=f"Please analyze the folder: {folder_path}",
+                        project_path=folder_path,
+                        api_url=api_url,
+                        api_key=api_key,
+                        model_name=model_name,
+                        profession=profession,
+                        stop_flag=current_agent_stop_flag,
                     )
                 )
 
@@ -117,8 +127,8 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
                 print(f"[Backend] Received stop_analysis request, stop_flag: {stop_flag}")
                 if stop_flag:
                     should_stop[stop_flag] = True
-                    print(f"[Backend] Set should_stop[{stop_flag}] = True")
-                    print(f"[Backend] Current should_stop dict: {should_stop}")
+                    agent_stop_flags[stop_flag] = True
+                    print(f"[Backend] Set stop flags for: {stop_flag}")
                     await websocket.send_json({
                         "type": "stopped"
                     })

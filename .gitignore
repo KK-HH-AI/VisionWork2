@@ -10,3 +10,6 @@ venv/
 *.egg-info/
 .vite/
 workspace/
+chroma_db/
+.cache/
+models--*/

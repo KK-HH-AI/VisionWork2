@@ -1,0 +1,11 @@
+name: search_memory
+description: 通过向量语义搜索在已分析的笔记中查找相关内容。传入问题或关键词，返回最相关的笔记片段及出处。
+parameters:
+  query:
+    type: string
+    description: 搜索查询，可以是问题、关键词或概念描述
+    required: true
+  k:
+    type: integer
+    description: 返回结果数量，默认5
+    required: false
