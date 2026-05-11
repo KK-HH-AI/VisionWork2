@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import ReactFlow, {
   addEdge,
   applyNodeChanges,
@@ -19,10 +19,20 @@ import 'reactflow/dist/style.css';
 import dagre from 'dagre';
 import { Maximize, Minimize } from 'react-feather';
 import { GROUP_COLORS, NODE_TYPE_COLORS } from '../utils/constants';
-import type { CanvasCommand, CanvasNodeData } from '../types';
+import type { CanvasCommand, CanvasNodeData, CanvasEdge as StoredCanvasEdge } from '../types';
 
 type CanvasNode = Node<CanvasNodeData>;
 type CanvasEdge = Edge;
+
+export interface CanvasState {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+}
+
+export interface ReactFlowCanvasHandle {
+  getCanvasState: () => CanvasState;
+  setCanvasState: (state: { nodes: CanvasNode[]; edges: StoredCanvasEdge[] }) => void;
+}
 
 function getLayoutedElements(nodes: CanvasNode[], edges: CanvasEdge[], direction = 'TB') {
   const dagreGraph = new dagre.graphlib.Graph();
@@ -86,9 +96,13 @@ const nodeTypes = { customNode: CustomNode };
 
 interface ReactFlowCanvasProps {
   theme: string;
+  sessionKey?: string;
 }
 
-export default function ReactFlowCanvas({ theme }: ReactFlowCanvasProps) {
+const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(function ReactFlowCanvas(
+  { theme, sessionKey },
+  ref
+) {
   const [nodes, setNodes] = useState<CanvasNode[]>([]);
   const [edges, setEdges] = useState<CanvasEdge[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -218,6 +232,24 @@ export default function ReactFlowCanvas({ theme }: ReactFlowCanvasProps) {
     };
   }, [enqueueCommand]);
 
+  useImperativeHandle(ref, () => ({
+    getCanvasState: () => ({
+      nodes: latestNodesRef.current,
+      edges: latestEdgesRef.current,
+    }),
+    setCanvasState: (state: { nodes: CanvasNode[]; edges: StoredCanvasEdge[] }) => {
+      setNodes(state.nodes);
+      setEdges(state.edges as CanvasEdge[]);
+    },
+  }), []);
+
+  useEffect(() => {
+    setNodes([]);
+    setEdges([]);
+    commandQueueRef.current = [];
+    processingRef.current = false;
+  }, [sessionKey]);
+
   const onNodesChangeHandler = useCallback((changes: NodeChange[]) => {
     setNodes((nds: CanvasNode[]) => applyNodeChanges(changes, nds) as CanvasNode[]);
   }, [setNodes]);
@@ -280,4 +312,8 @@ export default function ReactFlowCanvas({ theme }: ReactFlowCanvasProps) {
       </ReactFlow>
     </div>
   );
-}
+});
+
+ReactFlowCanvas.displayName = 'ReactFlowCanvas';
+
+export default ReactFlowCanvas;
