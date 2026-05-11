@@ -5,8 +5,18 @@ import SessionSidebar from './components/SessionSidebar';
 import RightPanel from './components/RightPanel';
 import ChatView from './components/ChatView';
 import ReactFlowCanvas from './components/ReactFlowCanvas';
+import type { ReactFlowCanvasHandle } from './components/ReactFlowCanvas';
 import ConfigPanel from './components/ConfigPanel';
-import type { ChatMessage, WSMessage } from './types';
+import type { ChatMessage, WSMessage, SessionData, CanvasEdge as StoredCanvasEdge } from './types';
+import {
+  loadSessions,
+  loadCurrentSessionId,
+  createSession,
+  updateSession,
+  deleteSession,
+  switchToSession,
+  ensureCurrentSession,
+} from './utils/sessionStore';
 
 declare global {
   interface Window {
@@ -47,6 +57,10 @@ export default function App() {
   const [apiKey, setApiKey] = useState('');
   const [modelName, setModelName] = useState('gpt-3.5-turbo');
   const [configSaved, setConfigSaved] = useState(false);
+
+  const [sessions, setSessions] = useState<SessionData[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const canvasRef = useRef<ReactFlowCanvasHandle>(null);
 
   const [chatWidth, setChatWidth] = useState(45);
   const [sidebarWidth, setSidebarWidth] = useState(280);
@@ -166,6 +180,59 @@ export default function App() {
 
   useEffect(() => {
     try {
+      const savedSessions = loadSessions();
+      setSessions(savedSessions);
+      const savedId = loadCurrentSessionId();
+      if (savedId && savedSessions.find((s) => s.id === savedId)) {
+        setCurrentSessionId(savedId);
+        const session = savedSessions.find((s) => s.id === savedId);
+        if (session) {
+          setChatMessages(session.messages || []);
+        }
+      } else {
+        const newSession = ensureCurrentSession();
+        setCurrentSessionId(newSession.id);
+        setSessions(loadSessions());
+      }
+    } catch (e) {
+      console.error('Failed to initialize sessions:', e);
+      const newSession = createSession();
+      setCurrentSessionId(newSession.id);
+      setSessions(loadSessions());
+    }
+  }, []);
+
+  const saveCurrentSession = useCallback(() => {
+    if (!currentSessionId) return;
+    const canvasState = canvasRef.current?.getCanvasState();
+    updateSession(currentSessionId, {
+      messages: chatMessages,
+      canvasNodes: canvasState?.nodes || [],
+      canvasEdges: (canvasState?.edges || []) as unknown as StoredCanvasEdge[],
+    });
+    setSessions(loadSessions());
+  }, [currentSessionId, chatMessages]);
+
+  useEffect(() => {
+    if (!currentSessionId) return;
+    const timer = setInterval(() => {
+      saveCurrentSession();
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [currentSessionId, saveCurrentSession]);
+
+  useEffect(() => {
+    if (!currentSessionId) return;
+    const canvasState = canvasRef.current?.getCanvasState();
+    updateSession(currentSessionId, {
+      messages: chatMessages,
+      canvasNodes: canvasState?.nodes || [],
+      canvasEdges: (canvasState?.edges || []) as unknown as StoredCanvasEdge[],
+    });
+  }, [chatMessages, currentSessionId]);
+
+  useEffect(() => {
+    try {
       localStorage.setItem('visionwork2_theme', theme);
       document.body.className = theme === 'dark' ? 'theme-dark' : 'theme-light';
     } catch (e) {
@@ -225,10 +292,63 @@ export default function App() {
   );
 
   const handleNewSession = useCallback(() => {
+    saveCurrentSession();
+    const newSession = createSession();
+    setCurrentSessionId(newSession.id);
     setChatMessages([]);
     setScanTag(null);
+    setSessions(loadSessions());
     setSessionSidebarOpen(false);
-  }, []);
+  }, [saveCurrentSession]);
+
+  const handleSelectSession = useCallback((id: string) => {
+    if (id === currentSessionId) {
+      setSessionSidebarOpen(false);
+      return;
+    }
+    saveCurrentSession();
+    const session = switchToSession(id);
+    if (session) {
+      setCurrentSessionId(session.id);
+      setChatMessages(session.messages);
+      setScanTag(session.projectPath || null);
+      setTimeout(() => {
+        canvasRef.current?.setCanvasState({
+          nodes: session.canvasNodes || [],
+          edges: session.canvasEdges || [],
+        });
+      }, 100);
+    }
+    setSessions(loadSessions());
+    setSessionSidebarOpen(false);
+  }, [currentSessionId, saveCurrentSession]);
+
+  const handleDeleteSession = useCallback((id: string) => {
+    deleteSession(id);
+    const remaining = loadSessions();
+    setSessions(remaining);
+    if (id === currentSessionId) {
+      if (remaining.length > 0) {
+        const first = remaining[0];
+        switchToSession(first.id);
+        setCurrentSessionId(first.id);
+        setChatMessages(first.messages);
+        setScanTag(first.projectPath || null);
+        setTimeout(() => {
+          canvasRef.current?.setCanvasState({
+            nodes: first.canvasNodes || [],
+            edges: first.canvasEdges || [],
+          });
+        }, 100);
+      } else {
+        const newSession = createSession();
+        setCurrentSessionId(newSession.id);
+        setChatMessages([]);
+        setScanTag(null);
+        setSessions(loadSessions());
+      }
+    }
+  }, [currentSessionId]);
 
   const handleSelectFolder = useCallback(async () => {
     try {
@@ -405,6 +525,10 @@ export default function App() {
         onOpenConfig={handleOpenConfig}
         width={sidebarWidth}
         onResizeStart={handleSidebarResizeStart}
+        sessions={sessions}
+        currentSessionId={currentSessionId}
+        onSelectSession={handleSelectSession}
+        onDeleteSession={handleDeleteSession}
       />
 
       <RightPanel
@@ -454,7 +578,7 @@ export default function App() {
         </div>
         <div className="center-resize-handle" onMouseDown={handleCenterMouseDown} />
         <div className="canvas-panel" style={{ width: `${100 - chatWidth}%` }}>
-          <ReactFlowCanvas theme={theme} />
+          <ReactFlowCanvas ref={canvasRef} theme={theme} sessionKey={currentSessionId || undefined} />
         </div>
       </div>
     </div>

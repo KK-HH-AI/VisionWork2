@@ -62,6 +62,7 @@ function startPythonBackend(port: number, token: string): Promise<void> {
       backendOutput += str;
       console.log(`[Backend] ${str.trim()}`);
       if (str.includes('Backend starting') || str.includes('Uvicorn running')) {
+        isBackendReady = true;
         resolve();
       }
     });
@@ -91,12 +92,12 @@ function startPythonBackend(port: number, token: string): Promise<void> {
       }
     });
     
-    //后端进程启动超过15s，任务启动失败
+    //后端进程启动超过30s，任务启动失败
     setTimeout(() => {
       if (!isBackendReady) {
         reject(new Error('Backend startup timeout'));
       }
-    }, 15000);
+    }, 30000);
   });
 }
 

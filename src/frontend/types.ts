@@ -67,6 +67,11 @@ export interface CanvasEdge {
   labelBgStyle?: React.CSSProperties;
 }
 
+export interface SessionCanvasState {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+}
+
 export interface CanvasCommand {
   cmd: 'add_node' | 'add_edge' | 'layout';
   id?: string;
@@ -111,6 +116,17 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+}
+
+export interface SessionData {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  projectPath?: string;
+  messages: ChatMessage[];
+  canvasNodes: CanvasNode[];
+  canvasEdges: CanvasEdge[];
 }
 
 export interface MessageHandlers {
