@@ -235,14 +235,23 @@ def plan_node(state: AgentState) -> AgentState:
             model=state["model_name"],
             temperature=0.3,
             max_tokens=2000,
+            streaming=True,
         )
 
-        response = llm.invoke([
+        full_content = ""
+        for chunk in llm.stream([
             SystemMessage(content=system_prompt),
             HumanMessage(content=f"User message: {user_message}\n\nProject path: {state.get('project_path', '')}\n\nPlease create an execution plan."),
-        ])
+        ]):
+            chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+            if chunk_content:
+                full_content += chunk_content
+                _push_event(event_queue, {
+                    "type": "thought_chunk",
+                    "message": chunk_content,
+                })
 
-        content = response.content if hasattr(response, 'content') else str(response)
+        content = full_content
         plan_data = _extract_json(content)
 
         if plan_data and "plan" in plan_data:
@@ -448,6 +457,7 @@ def observe_node(state: AgentState) -> AgentState:
                 model=state["model_name"],
                 temperature=0.3,
                 max_tokens=1000,
+                streaming=True,
             )
 
             execution_summary_parts = []
@@ -464,12 +474,20 @@ def observe_node(state: AgentState) -> AgentState:
                 total_steps=len(plan),
             )
 
-            response = llm.invoke([
+            full_content = ""
+            for chunk in llm.stream([
                 SystemMessage(content=observe_prompt),
                 HumanMessage(content="Please evaluate current progress and decide next step."),
-            ])
+            ]):
+                chunk_content = chunk.content if hasattr(chunk, 'content') else str(chunk)
+                if chunk_content:
+                    full_content += chunk_content
+                    _push_event(event_queue, {
+                        "type": "thought_chunk",
+                        "message": chunk_content,
+                    })
 
-            content = response.content if hasattr(response, 'content') else str(response)
+            content = full_content
             observe_data = _extract_json(content)
 
             if observe_data:

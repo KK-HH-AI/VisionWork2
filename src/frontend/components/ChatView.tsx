@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, FolderPlus, X, Folder, Settings, Square, ChevronDown, ChevronRight, Play } from 'react-feather';
+import { Send, FolderPlus, X, Folder, Settings, Square, ChevronDown, ChevronRight } from 'react-feather';
 
 interface ChatMessage {
   id: string;
@@ -25,7 +25,6 @@ interface ChatViewProps {
   onOpenSkillManager?: () => void;
   isProcessing?: boolean;
   onStop?: () => void;
-  onStartAnalysis?: () => void;
 }
 
 function buildThinkingBlocks(messages: ChatMessage[]): (ChatMessage | ThinkingBlock)[] {
@@ -59,7 +58,6 @@ export default function ChatView({
   onOpenSkillManager,
   isProcessing,
   onStop,
-  onStartAnalysis,
 }: ChatViewProps) {
   const [input, setInput] = useState('');
   const [expandedBlocks, setExpandedBlocks] = useState<Set<number>>(new Set());
@@ -74,14 +72,20 @@ export default function ChatView({
     const trimmed = input.trim();
     if (!trimmed || !connected || isProcessing) return;
 
-    sendMessage({
+    const msg: Record<string, unknown> = {
       type: 'chat_message',
       content: trimmed,
-    });
+    };
+
+    if (scanTag) {
+      msg.path = scanTag;
+    }
+
+    sendMessage(msg);
 
     setInput('');
     inputRef.current?.focus();
-  }, [input, connected, isProcessing, sendMessage]);
+  }, [input, connected, isProcessing, sendMessage, scanTag]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -162,6 +166,13 @@ export default function ChatView({
             );
           })
         )}
+        {isProcessing && (
+          <div className="typing-indicator">
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
       {scanTag && (
@@ -169,11 +180,6 @@ export default function ChatView({
           <div className="scan-tag">
             <Folder size={14} />
             <span className="scan-tag-path" title={scanTag}>{scanTag}</span>
-            {onStartAnalysis && !isProcessing && (
-              <button className="btn-scan-start" onClick={onStartAnalysis} title="开始分析">
-                <Play size={12} /> 开始分析
-              </button>
-            )}
             {onViewFileTree && (
               <button className="btn-scan-action" onClick={onViewFileTree} title="查看文件树">
                 查看文件树

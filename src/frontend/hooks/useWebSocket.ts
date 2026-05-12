@@ -102,6 +102,10 @@ export default function useWebSocket(onMessageHandlers: MessageHandlers) {
             flushSync(() => {
               if (onMessageHandlers.onThought) onMessageHandlers.onThought(message);
             });
+          } else if (message.type === 'thought_chunk') {
+            flushSync(() => {
+              if (onMessageHandlers.onThoughtChunk) onMessageHandlers.onThoughtChunk(message);
+            });
           } else if (message.type === 'plan') {
             flushSync(() => {
               if (onMessageHandlers.onPlan) onMessageHandlers.onPlan(message);

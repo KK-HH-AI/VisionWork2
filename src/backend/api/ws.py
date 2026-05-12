@@ -2,7 +2,6 @@ import json
 import asyncio
 import queue
 import threading
-import re
 from fastapi import WebSocket, WebSocketDisconnect
 from ..services.scanner import build_directory_tree
 from ..services.analyzer import should_stop
@@ -198,18 +197,13 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
 
             elif message.get("type") == "chat_message":
                 content = message.get("content", "")
+                folder_path = message.get("path", "")
 
                 api_url = message.get("api_url") or stored_config["api_url"]
                 api_key = message.get("api_key") or stored_config["api_key"]
                 model_name = message.get("model_name") or stored_config["model_name"]
 
-                scan_pattern = re.compile(r"(?:please analyze|analyze|scan|analysis|分析|扫描)\s*(?:folder\s*)?[：:\s]*(.+)", re.IGNORECASE)
-                is_scan_msg = bool(scan_pattern.search(content))
-
-                if is_scan_msg and api_url and api_key:
-                    match = scan_pattern.search(content)
-                    folder_path = match.group(1).strip().strip('"').strip("'") if match else ""
-
+                if api_url and api_key:
                     import uuid
                     current_agent_stop_flag = str(uuid.uuid4())[:8]
                     agent_stop_flags[current_agent_stop_flag] = False
@@ -219,23 +213,6 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
                             websocket,
                             user_message=content,
                             project_path=folder_path,
-                            api_url=api_url,
-                            api_key=api_key,
-                            model_name=model_name,
-                            profession="Software Engineer",
-                            stop_flag=current_agent_stop_flag,
-                        )
-                    )
-                elif api_url and api_key:
-                    import uuid
-                    current_agent_stop_flag = str(uuid.uuid4())[:8]
-                    agent_stop_flags[current_agent_stop_flag] = False
-
-                    analysis_task = asyncio.create_task(
-                        _run_agent_loop(
-                            websocket,
-                            user_message=content,
-                            project_path="",
                             api_url=api_url,
                             api_key=api_key,
                             model_name=model_name,

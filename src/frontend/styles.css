@@ -584,6 +584,8 @@ body {
   align-self: flex-start;
   max-width: 90%;
   opacity: 0.85;
+  flex-shrink: 0;
+  min-height: 28px;
 }
 
 .thinking-block-header {
@@ -596,6 +598,8 @@ body {
   transition: background 0.15s;
   color: var(--text-tertiary);
   font-size: 0.72rem;
+  min-height: 24px;
+  flex-shrink: 0;
 }
 
 .thinking-block-header:hover {
@@ -648,6 +652,57 @@ body {
   line-height: 1.35;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.thinking-loading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  color: var(--text-tertiary);
+  font-size: 0.72rem;
+}
+
+.thinking-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  align-self: flex-start;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--text-tertiary);
+  border-radius: 50%;
+  animation: typingBounce 1.4s ease-in-out infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
 }
 
 .chat-input-area {
@@ -799,25 +854,6 @@ body {
 .btn-scan-action:hover {
   background: var(--accent-primary);
   color: #fff;
-}
-
-.btn-scan-start {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 10px;
-  background: var(--accent-primary);
-  border: none;
-  border-radius: 4px;
-  color: #fff;
-  font-size: 0.75rem;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}
-
-.btn-scan-start:hover {
-  background: var(--accent-hover);
 }
 
 .btn-scan-close {
