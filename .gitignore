@@ -13,3 +13,4 @@ workspace/
 chroma_db/
 .cache/
 models--*/
+skills_config.json

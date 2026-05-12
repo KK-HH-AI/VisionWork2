@@ -7,6 +7,7 @@ import ChatView from './components/ChatView';
 import ReactFlowCanvas from './components/ReactFlowCanvas';
 import type { ReactFlowCanvasHandle } from './components/ReactFlowCanvas';
 import ConfigPanel from './components/ConfigPanel';
+import SkillManager from './components/SkillManager';
 import type { ChatMessage, WSMessage, SessionData, CanvasEdge as StoredCanvasEdge } from './types';
 import {
   loadSessions,
@@ -48,11 +49,12 @@ export default function App() {
   const [sessionSidebarOpen, setSessionSidebarOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+  const [showSkillManager, setShowSkillManager] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [scanTag, setScanTag] = useState<string | null>(null);
   const [rightPanelInitialTab, setRightPanelInitialTab] = useState<'notes' | 'files' | undefined>(undefined);
 
-  const [profession, setProfession] = useState('软件工程师');
   const [apiUrl, setApiUrl] = useState('https://api.openai.com/v1');
   const [apiKey, setApiKey] = useState('');
   const [modelName, setModelName] = useState('gpt-3.5-turbo');
@@ -71,6 +73,7 @@ export default function App() {
 
   const messageHandlers = {
     onChatResponse: (msg: WSMessage) => {
+      setIsProcessing(false);
       setChatMessages((prev) => [
         ...prev,
         {
@@ -78,6 +81,7 @@ export default function App() {
           role: 'assistant',
           content: msg.message || '',
           timestamp: Date.now(),
+          subtype: 'response',
         },
       ]);
     },
@@ -87,8 +91,9 @@ export default function App() {
         {
           id: nextMsgId(),
           role: 'assistant',
-          content: `💭 ${msg.message || ''}`,
+          content: msg.message || '',
           timestamp: Date.now(),
+          subtype: 'thinking',
         },
       ]);
     },
@@ -96,15 +101,16 @@ export default function App() {
       const plan = msg.plan;
       if (plan && plan.length > 0) {
         const planText = plan
-          .map((step) => `${step.step_number}. **${step.action}** - ${step.thought}`)
+          .map((step) => `${step.step_number}. ${step.action} - ${step.thought}`)
           .join('\n');
         setChatMessages((prev) => [
           ...prev,
           {
             id: nextMsgId(),
             role: 'assistant',
-            content: `📋 **Execution Plan:**\n${planText}`,
+            content: planText,
             timestamp: Date.now(),
+            subtype: 'thinking',
           },
         ]);
       }
@@ -115,8 +121,9 @@ export default function App() {
         {
           id: nextMsgId(),
           role: 'assistant',
-          content: `🔧 Calling tool: **${msg.tool_name || ''}**\n> ${msg.thought || ''}`,
+          content: `${msg.tool_name || ''}: ${msg.thought || ''}`,
           timestamp: Date.now(),
+          subtype: 'thinking',
         },
       ]);
     },
@@ -129,8 +136,9 @@ export default function App() {
         {
           id: nextMsgId(),
           role: 'assistant',
-          content: `✅ Tool **${msg.tool_name || ''}** completed.\n\`\`\`\n${resultPreview}${resultPreview.length >= 200 ? '...' : ''}\n\`\`\``,
+          content: resultPreview,
           timestamp: Date.now(),
+          subtype: 'thinking',
         },
       ]);
     },
@@ -140,12 +148,14 @@ export default function App() {
         {
           id: nextMsgId(),
           role: 'assistant',
-          content: `🔄 ${msg.message || ''}`,
+          content: msg.message || '',
           timestamp: Date.now(),
+          subtype: 'thinking',
         },
       ]);
     },
     onError: (msg: string | WSMessage) => {
+      setIsProcessing(false);
       const errorText = typeof msg === 'string' ? msg : msg.message || '';
       if (errorText) {
         setChatMessages((prev) => [
@@ -153,11 +163,15 @@ export default function App() {
           {
             id: nextMsgId(),
             role: 'assistant',
-            content: `❌ Error: ${errorText}`,
+            content: errorText,
             timestamp: Date.now(),
+            subtype: 'error',
           },
         ]);
       }
+    },
+    onStopped: () => {
+      setIsProcessing(false);
     },
   };
 
@@ -168,7 +182,6 @@ export default function App() {
       const saved = localStorage.getItem('visionwork2_config');
       if (saved) {
         const config = JSON.parse(saved);
-        if (config.profession) setProfession(config.profession);
         if (config.apiUrl) setApiUrl(config.apiUrl);
         if (config.apiKey) setApiKey(config.apiKey);
         if (config.modelName) setModelName(config.modelName);
@@ -242,14 +255,14 @@ export default function App() {
 
   useEffect(() => {
     try {
-      const configData = { profession, apiUrl, apiKey, modelName };
+      const configData = { apiUrl, apiKey, modelName };
       localStorage.setItem('visionwork2_config', JSON.stringify(configData));
       setConfigSaved(true);
       setTimeout(() => setConfigSaved(false), 2000);
     } catch (e) {
       console.error('Failed to save config:', e);
     }
-  }, [profession, apiUrl, apiKey, modelName]);
+  }, [apiUrl, apiKey, modelName]);
 
   useEffect(() => {
     if (connected && apiUrl && apiKey) {
@@ -258,15 +271,15 @@ export default function App() {
         api_url: apiUrl,
         api_key: apiKey,
         model_name: modelName,
-        profession: profession,
       });
     }
-  }, [connected, apiUrl, apiKey, modelName, profession, sendMessage]);
+  }, [connected, apiUrl, apiKey, modelName, sendMessage]);
 
   const handleSendMessage = useCallback(
     (message: unknown) => {
       const msg = message as { type: string; content: string };
       if (msg.type === 'chat_message') {
+        setIsProcessing(true);
         setChatMessages((prev) => [
           ...prev,
           {
@@ -282,14 +295,18 @@ export default function App() {
           api_url: apiUrl,
           api_key: apiKey,
           model_name: modelName,
-          profession: profession,
         });
       } else {
         sendMessage(message);
       }
     },
-    [sendMessage, apiUrl, apiKey, modelName, profession]
+    [sendMessage, apiUrl, apiKey, modelName]
   );
+
+  const handleStop = useCallback(() => {
+    sendMessage({ type: 'stop_agent' });
+    setIsProcessing(false);
+  }, [sendMessage]);
 
   const handleNewSession = useCallback(() => {
     saveCurrentSession();
@@ -385,23 +402,36 @@ export default function App() {
           {
             id: nextMsgId(),
             role: 'user',
-            content: `Please analyze folder: ${folderPath}`,
+            content: `Selected folder: ${folderPath}`,
             timestamp: Date.now(),
           },
         ]);
-        sendMessage({
-          type: 'scan_request',
-          path: folderPath,
-          api_url: apiUrl,
-          api_key: apiKey,
-          model_name: modelName,
-          profession: profession,
-        });
       }
     } catch (err) {
       console.error('Failed to select folder:', err);
     }
-  }, [sendMessage, apiUrl, apiKey, modelName, profession]);
+  }, []);
+
+  const handleStartAnalysis = useCallback(() => {
+    if (!scanTag) return;
+    setIsProcessing(true);
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: nextMsgId(),
+        role: 'user',
+        content: `Please analyze folder: ${scanTag}`,
+        timestamp: Date.now(),
+      },
+    ]);
+    sendMessage({
+      type: 'scan_request',
+      path: scanTag,
+      api_url: apiUrl,
+      api_key: apiKey,
+      model_name: modelName,
+    });
+  }, [scanTag, sendMessage, apiUrl, apiKey, modelName]);
 
   const handleClearScanTag = useCallback(() => {
     setScanTag(null);
@@ -415,6 +445,10 @@ export default function App() {
   const handleOpenConfig = useCallback(() => {
     setShowConfig(true);
     setSessionSidebarOpen(false);
+  }, []);
+
+  const handleOpenSkillManager = useCallback(() => {
+    setShowSkillManager(true);
   }, []);
 
   const toggleTheme = () => {
@@ -549,8 +583,6 @@ export default function App() {
               <button className="btn-icon" onClick={() => setShowConfig(false)}>✕</button>
             </div>
             <ConfigPanel
-              profession={profession}
-              setProfession={setProfession}
               apiUrl={apiUrl}
               setApiUrl={setApiUrl}
               apiKey={apiKey}
@@ -564,6 +596,12 @@ export default function App() {
         </div>
       )}
 
+      <SkillManager
+        isOpen={showSkillManager}
+        onClose={() => setShowSkillManager(false)}
+        backendPort={backendPortRef.current}
+      />
+
       <div className="main-center">
         <div className="chat-panel" style={{ width: `${chatWidth}%` }}>
           <ChatView
@@ -574,6 +612,10 @@ export default function App() {
             scanTag={scanTag}
             onClearScanTag={handleClearScanTag}
             onViewFileTree={handleViewFileTree}
+            onOpenSkillManager={handleOpenSkillManager}
+            isProcessing={isProcessing}
+            onStop={handleStop}
+            onStartAnalysis={handleStartAnalysis}
           />
         </div>
         <div className="center-resize-handle" onMouseDown={handleCenterMouseDown} />

@@ -1,5 +1,6 @@
 import os
 import yaml
+import json
 from typing import Dict, Any, List, Optional
 from .base import BaseTool
 from .scan import ScanDirectoryTool
@@ -61,14 +62,21 @@ class ToolRegistry:
     @property
     def tool_definitions(self) -> List[Dict[str, Any]]:
         definitions = []
+        skills_config = self._load_skills_config()
         for tool in self._tools.values():
-            definitions.append(tool.to_tool_definition())
+            enabled = skills_config.get(tool.name, {}).get("enabled", True)
+            if enabled:
+                definitions.append(tool.to_tool_definition())
         return definitions
 
     @property
     def tools_description(self) -> str:
         lines = []
+        skills_config = self._load_skills_config()
         for skill_name, skill_data in self._skill_descriptions.items():
+            enabled = skills_config.get(skill_name, {}).get("enabled", True)
+            if not enabled:
+                continue
             desc = skill_data.get("description", "")
             params = skill_data.get("parameters", {})
             param_desc = ", ".join(
@@ -81,12 +89,20 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if not tool:
             return f'{{"error": "Unknown tool: {name}"}}'
+        skills_config = self._load_skills_config()
+        enabled = skills_config.get(name, {}).get("enabled", True)
+        if not enabled:
+            return f'{{"error": "Tool {name} is disabled"}}'
         return await tool.execute(**args)
 
     def execute_tool_sync(self, name: str, args: Dict[str, Any]) -> str:
         tool = self._tools.get(name)
         if not tool:
             return f'{{"error": "Unknown tool: {name}"}}'
+        skills_config = self._load_skills_config()
+        enabled = skills_config.get(name, {}).get("enabled", True)
+        if not enabled:
+            return f'{{"error": "Tool {name} is disabled"}}'
         import asyncio
         try:
             loop = asyncio.get_event_loop()
@@ -99,6 +115,16 @@ class ToolRegistry:
                 return asyncio.run(tool.execute(**args))
         except RuntimeError:
             return asyncio.run(tool.execute(**args))
+
+    def _load_skills_config(self) -> Dict[str, Any]:
+        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills_config.json")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
 
 
 tool_registry = ToolRegistry()

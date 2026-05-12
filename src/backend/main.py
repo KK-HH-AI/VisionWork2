@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.api.files import router as files_router
 from backend.api.memory import router as memory_router
+from backend.api.skills import router as skills_router
 from backend.api.ws import handle_websocket
 
 app = FastAPI()
@@ -31,6 +32,7 @@ app.add_middleware(
 
 app.include_router(files_router)
 app.include_router(memory_router)
+app.include_router(skills_router)
 
 
 def main():

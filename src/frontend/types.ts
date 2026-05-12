@@ -116,6 +116,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  subtype?: 'thinking' | 'response' | 'error';
 }
 
 export interface SessionData {

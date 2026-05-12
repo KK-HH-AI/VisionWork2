@@ -433,6 +433,14 @@ def observe_node(state: AgentState) -> AgentState:
         return state
 
     if current_step >= len(plan):
+        if not plan:
+            state["plan_complete"] = True
+            _push_event(event_queue, {
+                "type": "chat_response",
+                "message": "I don't have enough information to proceed with the analysis. Please provide more details about what you'd like me to analyze.",
+            })
+            return state
+
         try:
             llm = ChatOpenAI(
                 base_url=state["api_url"],
@@ -477,7 +485,7 @@ def observe_node(state: AgentState) -> AgentState:
                     state["plan_complete"] = True
                     _push_event(event_queue, {
                         "type": "chat_response",
-                        "message": f"Analysis complete. {reflection}",
+                        "message": "Analysis complete.",
                     })
                 else:
                     new_plan = observe_data.get("new_plan", [])
@@ -493,7 +501,7 @@ def observe_node(state: AgentState) -> AgentState:
                         state["plan_complete"] = True
                         _push_event(event_queue, {
                             "type": "chat_response",
-                            "message": f"Analysis complete. {reflection}",
+                            "message": "Analysis complete.",
                         })
             else:
                 state["plan_complete"] = True
@@ -506,7 +514,7 @@ def observe_node(state: AgentState) -> AgentState:
             state["plan_complete"] = True
             _push_event(event_queue, {
                 "type": "chat_response",
-                "message": f"Analysis complete (reflection phase encountered issue: {str(e)}).",
+                "message": "Analysis complete.",
             })
     else:
         state["plan_complete"] = False

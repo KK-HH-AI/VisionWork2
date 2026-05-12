@@ -2,8 +2,6 @@ import React from 'react';
 import { Check } from 'react-feather';
 
 interface ConfigPanelProps {
-  profession: string;
-  setProfession: (value: string) => void;
   apiUrl: string;
   setApiUrl: (value: string) => void;
   apiKey: string;
@@ -15,7 +13,6 @@ interface ConfigPanelProps {
 }
 
 export default function ConfigPanel({
-  profession, setProfession,
   apiUrl, setApiUrl,
   apiKey, setApiKey,
   modelName, setModelName,
@@ -23,16 +20,6 @@ export default function ConfigPanel({
 }: ConfigPanelProps) {
   return (
     <div className="config-panel">
-      <div className="config-field">
-        <label>职业角色</label>
-        <input
-          type="text"
-          value={profession}
-          onChange={(e) => setProfession(e.target.value)}
-          placeholder="例如：Python后端工程师"
-          disabled={isAnalyzing}
-        />
-      </div>
       <div className="config-field">
         <label>API 地址</label>
         <input

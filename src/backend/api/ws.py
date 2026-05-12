@@ -32,7 +32,6 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
         "api_url": "",
         "api_key": "",
         "model_name": "gpt-3.5-turbo",
-        "profession": "Software Engineer",
     }
 
     analysis_task = None
@@ -84,7 +83,6 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
 
             elif message.get("type") == "start_analysis":
                 folder_path = message.get("path")
-                profession = message.get("profession", "Software Engineer")
                 api_url = message.get("api_url", "")
                 api_key = message.get("api_key", "")
                 model_name = message.get("model_name", "gpt-3.5-turbo")
@@ -117,7 +115,7 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
                         api_url=api_url,
                         api_key=api_key,
                         model_name=model_name,
-                        profession=profession,
+                        profession="Software Engineer",
                         stop_flag=current_agent_stop_flag,
                     )
                 )
@@ -143,8 +141,7 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
                 stored_config["api_url"] = message.get("api_url", stored_config["api_url"])
                 stored_config["api_key"] = message.get("api_key", stored_config["api_key"])
                 stored_config["model_name"] = message.get("model_name", stored_config["model_name"])
-                stored_config["profession"] = message.get("profession", stored_config["profession"])
-                print(f"[Backend] Config updated: model={stored_config['model_name']}, profession={stored_config['profession']}")
+                print(f"[Backend] Config updated: model={stored_config['model_name']}")
                 await websocket.send_json({
                     "type": "config_saved"
                 })
@@ -174,7 +171,6 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
                 api_url = message.get("api_url") or stored_config["api_url"]
                 api_key = message.get("api_key") or stored_config["api_key"]
                 model_name = message.get("model_name") or stored_config["model_name"]
-                profession = message.get("profession") or stored_config["profession"]
 
                 if not api_url or not api_key:
                     await websocket.send_json({
@@ -195,7 +191,7 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
                         api_url=api_url,
                         api_key=api_key,
                         model_name=model_name,
-                        profession=profession,
+                        profession="Software Engineer",
                         stop_flag=current_agent_stop_flag,
                     )
                 )
@@ -206,7 +202,6 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
                 api_url = message.get("api_url") or stored_config["api_url"]
                 api_key = message.get("api_key") or stored_config["api_key"]
                 model_name = message.get("model_name") or stored_config["model_name"]
-                profession = message.get("profession") or stored_config["profession"]
 
                 scan_pattern = re.compile(r"(?:please analyze|analyze|scan|analysis|分析|扫描)\s*(?:folder\s*)?[：:\s]*(.+)", re.IGNORECASE)
                 is_scan_msg = bool(scan_pattern.search(content))
@@ -227,7 +222,7 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
                             api_url=api_url,
                             api_key=api_key,
                             model_name=model_name,
-                            profession=profession,
+                            profession="Software Engineer",
                             stop_flag=current_agent_stop_flag,
                         )
                     )
@@ -244,7 +239,7 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
                             api_url=api_url,
                             api_key=api_key,
                             model_name=model_name,
-                            profession=profession,
+                            profession="Software Engineer",
                             stop_flag=current_agent_stop_flag,
                         )
                     )
@@ -299,8 +294,14 @@ async def _run_agent_loop(
                     event_queue.put({"type": "chat_response", "message": "Analysis stopped by user."})
                     break
 
-                result = graph.invoke(current_state)
-                current_state = dict(result)
+                for chunk in graph.stream(current_state):
+                    node_name = list(chunk.keys())[0]
+                    current_state = dict(chunk[node_name])
+
+                    if agent_stop_flags.get(stop_flag, False):
+                        current_state["should_stop"] = True
+                        event_queue.put({"type": "chat_response", "message": "Analysis stopped by user."})
+                        break
 
                 if current_state.get("should_stop"):
                     break
