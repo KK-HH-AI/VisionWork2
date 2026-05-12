@@ -70,10 +70,12 @@ export default function App() {
   const isDraggingCenterRef = useRef(false);
   const isDraggingSidebarRef = useRef(false);
   const isDraggingRightPanelRef = useRef(false);
+  const streamingMsgIdRef = useRef<string | null>(null);
 
   const messageHandlers = {
     onChatResponse: (msg: WSMessage) => {
       setIsProcessing(false);
+      streamingMsgIdRef.current = null;
       setChatMessages((prev) => [
         ...prev,
         {
@@ -86,6 +88,7 @@ export default function App() {
       ]);
     },
     onThought: (msg: WSMessage) => {
+      streamingMsgIdRef.current = null;
       setChatMessages((prev) => [
         ...prev,
         {
@@ -97,7 +100,32 @@ export default function App() {
         },
       ]);
     },
+    onThoughtChunk: (msg: WSMessage) => {
+      const chunkContent = msg.message || '';
+      setChatMessages((prev) => {
+        if (streamingMsgIdRef.current) {
+          return prev.map((m) =>
+            m.id === streamingMsgIdRef.current
+              ? { ...m, content: m.content + chunkContent }
+              : m
+          );
+        }
+        const newId = nextMsgId();
+        streamingMsgIdRef.current = newId;
+        return [
+          ...prev,
+          {
+            id: newId,
+            role: 'assistant',
+            content: chunkContent,
+            timestamp: Date.now(),
+            subtype: 'thinking',
+          },
+        ];
+      });
+    },
     onPlan: (msg: WSMessage) => {
+      streamingMsgIdRef.current = null;
       const plan = msg.plan;
       if (plan && plan.length > 0) {
         const planText = plan
@@ -116,6 +144,7 @@ export default function App() {
       }
     },
     onToolCall: (msg: WSMessage) => {
+      streamingMsgIdRef.current = null;
       setChatMessages((prev) => [
         ...prev,
         {
@@ -128,6 +157,7 @@ export default function App() {
       ]);
     },
     onToolResult: (msg: WSMessage) => {
+      streamingMsgIdRef.current = null;
       const resultPreview = typeof msg.result === 'string'
         ? msg.result.substring(0, 200)
         : '';
@@ -143,6 +173,7 @@ export default function App() {
       ]);
     },
     onReflection: (msg: WSMessage) => {
+      streamingMsgIdRef.current = null;
       setChatMessages((prev) => [
         ...prev,
         {
@@ -156,6 +187,7 @@ export default function App() {
     },
     onError: (msg: string | WSMessage) => {
       setIsProcessing(false);
+      streamingMsgIdRef.current = null;
       const errorText = typeof msg === 'string' ? msg : msg.message || '';
       if (errorText) {
         setChatMessages((prev) => [
@@ -172,6 +204,7 @@ export default function App() {
     },
     onStopped: () => {
       setIsProcessing(false);
+      streamingMsgIdRef.current = null;
     },
   };
 
@@ -277,9 +310,10 @@ export default function App() {
 
   const handleSendMessage = useCallback(
     (message: unknown) => {
-      const msg = message as { type: string; content: string };
+      const msg = message as { type: string; content: string; path?: string };
       if (msg.type === 'chat_message') {
         setIsProcessing(true);
+        streamingMsgIdRef.current = null;
         setChatMessages((prev) => [
           ...prev,
           {
@@ -289,18 +323,22 @@ export default function App() {
             timestamp: Date.now(),
           },
         ]);
-        sendMessage({
+        const payload: Record<string, unknown> = {
           type: 'chat_message',
           content: msg.content,
           api_url: apiUrl,
           api_key: apiKey,
           model_name: modelName,
-        });
+        };
+        if (msg.path || scanTag) {
+          payload.path = msg.path || scanTag;
+        }
+        sendMessage(payload);
       } else {
         sendMessage(message);
       }
     },
-    [sendMessage, apiUrl, apiKey, modelName]
+    [sendMessage, apiUrl, apiKey, modelName, scanTag]
   );
 
   const handleStop = useCallback(() => {
@@ -411,27 +449,6 @@ export default function App() {
       console.error('Failed to select folder:', err);
     }
   }, []);
-
-  const handleStartAnalysis = useCallback(() => {
-    if (!scanTag) return;
-    setIsProcessing(true);
-    setChatMessages((prev) => [
-      ...prev,
-      {
-        id: nextMsgId(),
-        role: 'user',
-        content: `Please analyze folder: ${scanTag}`,
-        timestamp: Date.now(),
-      },
-    ]);
-    sendMessage({
-      type: 'scan_request',
-      path: scanTag,
-      api_url: apiUrl,
-      api_key: apiKey,
-      model_name: modelName,
-    });
-  }, [scanTag, sendMessage, apiUrl, apiKey, modelName]);
 
   const handleClearScanTag = useCallback(() => {
     setScanTag(null);
@@ -615,7 +632,6 @@ export default function App() {
             onOpenSkillManager={handleOpenSkillManager}
             isProcessing={isProcessing}
             onStop={handleStop}
-            onStartAnalysis={handleStartAnalysis}
           />
         </div>
         <div className="center-resize-handle" onMouseDown={handleCenterMouseDown} />

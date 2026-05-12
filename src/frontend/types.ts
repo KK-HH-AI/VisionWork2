@@ -141,6 +141,7 @@ export interface MessageHandlers {
   onError?: (msg: string | WSMessage) => void;
   onChatResponse?: (msg: WSMessage) => void;
   onThought?: (msg: WSMessage) => void;
+  onThoughtChunk?: (msg: WSMessage) => void;
   onPlan?: (msg: WSMessage) => void;
   onToolCall?: (msg: WSMessage) => void;
   onToolResult?: (msg: WSMessage) => void;

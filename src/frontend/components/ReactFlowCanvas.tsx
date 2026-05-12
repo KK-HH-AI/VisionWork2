@@ -117,10 +117,10 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
   latestNodesRef.current = nodes;
   latestEdgesRef.current = edges;
 
-  const edgeColor = theme === 'dark' ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.25)';
-  const edgeMarkerColor = theme === 'dark' ? '#aaa' : '#555';
-  const labelColor = theme === 'dark' ? '#aaa' : '#555';
-  const labelBgColor = theme === 'dark' ? 'rgba(26, 26, 46, 0.8)' : 'rgba(255, 255, 255, 0.9)';
+  const edgeColor = theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.55)';
+  const edgeMarkerColor = theme === 'dark' ? '#ccc' : '#333';
+  const labelColor = theme === 'dark' ? '#ccc' : '#333';
+  const labelBgColor = theme === 'dark' ? 'rgba(26, 26, 46, 0.85)' : 'rgba(255, 255, 255, 0.95)';
 
   const processCommand = useCallback(async (command: CanvasCommand) => {
     const cmd = command.cmd;
@@ -249,6 +249,19 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
     commandQueueRef.current = [];
     processingRef.current = false;
   }, [sessionKey]);
+
+  useEffect(() => {
+    if (nodes.length === 0 && edges.length === 0) return;
+    setEdges((eds: CanvasEdge[]) =>
+      eds.map((e) => ({
+        ...e,
+        markerEnd: { type: MarkerType.ArrowClosed, color: edgeMarkerColor } as EdgeMarker,
+        style: { ...e.style, stroke: edgeColor },
+        labelStyle: { ...e.labelStyle, fill: labelColor },
+        labelBgStyle: { ...e.labelBgStyle, fill: labelBgColor },
+      }))
+    );
+  }, [theme, edgeColor, edgeMarkerColor, labelColor, labelBgColor]);
 
   const onNodesChangeHandler = useCallback((changes: NodeChange[]) => {
     setNodes((nds: CanvasNode[]) => applyNodeChanges(changes, nds) as CanvasNode[]);
