@@ -276,11 +276,25 @@ body {
 
 .canvas-edit-dialog {
   background: var(--bg-primary);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
   padding: 20px;
   min-width: 300px;
+  max-height: 85vh;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+}
+
+.canvas-edit-dialog-wide {
+  min-width: 420px;
+  max-width: 500px;
+}
+
+.canvas-edit-scroll {
+  overflow-y: auto;
+  flex: 1;
+  padding-right: 4px;
 }
 
 .canvas-edit-header {
@@ -288,6 +302,9 @@ body {
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .canvas-edit-field {
@@ -301,20 +318,55 @@ body {
   margin-bottom: 4px;
 }
 
-.canvas-edit-field input {
+.canvas-edit-field input,
+.canvas-edit-field textarea {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   background: var(--bg-secondary);
   color: var(--text-primary);
   font-size: 0.85rem;
   box-sizing: border-box;
   outline: none;
+  font-family: inherit;
+  resize: vertical;
 }
 
-.canvas-edit-field input:focus {
-  border-color: var(--accent);
+.canvas-edit-field input:focus,
+.canvas-edit-field textarea:focus {
+  border-color: var(--accent-primary);
+}
+
+.canvas-edit-row {
+  display: flex;
+  gap: 10px;
+}
+
+.canvas-edit-row .canvas-edit-field {
+  flex: 1;
+}
+
+/* Color picker */
+.canvas-color-picker-wrap {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.canvas-color-picker-wrap input[type="color"] {
+  width: 36px;
+  height: 34px;
+  padding: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.canvas-color-picker-wrap input[type="text"] {
+  flex: 1;
 }
 
 .canvas-edit-actions {
@@ -322,6 +374,8 @@ body {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
 }
 
 .canvas-edit-btn {
@@ -337,7 +391,7 @@ body {
 }
 
 .canvas-edit-btn.save {
-  background: var(--accent);
+  background: var(--accent-primary);
   color: #fff;
 }
 
@@ -348,11 +402,11 @@ body {
 .canvas-edit-btn.cancel {
   background: transparent;
   color: var(--text-secondary);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-color);
 }
 
 .canvas-edit-btn.cancel:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
 }
 
 .session-item {
@@ -972,10 +1026,17 @@ body {
   cursor: pointer;
   transition: all 0.15s ease;
   flex-shrink: 0;
+  animation: stopPulse 1.5s ease-in-out infinite;
 }
 
 .btn-stop:hover {
   background: #dc2626;
+  animation: none;
+}
+
+@keyframes stopPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
 }
 
 .btn-folder-select {
@@ -1253,7 +1314,7 @@ body {
   border-radius: 8px;
   min-width: 160px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .rf-node-header {
@@ -1263,6 +1324,8 @@ body {
   color: #fff;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  overflow: hidden;
+  border-radius: 6px 6px 0 0;
 }
 
 .rf-node-body {
@@ -1273,6 +1336,57 @@ body {
   font-size: 0.8rem;
   color: var(--text-primary);
   font-weight: 500;
+}
+
+/* Rich content nodes */
+.rf-custom-node-rich {
+  max-width: 320px;
+}
+
+.rf-node-image-wrap {
+  margin-top: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.rf-node-image {
+  width: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  display: block;
+}
+
+.rf-node-rich-content {
+  margin-top: 8px;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.rf-node-rich-content p {
+  margin: 0 0 4px 0;
+}
+
+.rf-node-rich-content table {
+  font-size: 0.65rem;
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.rf-node-rich-content th,
+.rf-node-rich-content td {
+  border: 1px solid var(--border-color);
+  padding: 2px 4px;
+  text-align: left;
+}
+
+.rf-node-rich-content code {
+  font-size: 0.65rem;
+  background: var(--bg-primary);
+  padding: 1px 3px;
+  border-radius: 2px;
 }
 
 .rf-handle {
@@ -1945,4 +2059,102 @@ body {
   height: 100%;
   color: var(--text-tertiary);
   font-size: 0.85rem;
+}
+
+.memory-file-toggle-btn {
+  color: var(--text-secondary);
+}
+
+.memory-file-toggle-btn:hover {
+  color: var(--accent-primary);
+}
+
+.memory-file-preview {
+  height: 100%;
+  overflow-y: auto;
+  padding: 20px 28px;
+  color: var(--text-primary);
+  line-height: 1.7;
+  font-size: 0.9rem;
+}
+
+.memory-file-preview h1,
+.memory-file-preview h2,
+.memory-file-preview h3,
+.memory-file-preview h4 {
+  margin-top: 1.2em;
+  margin-bottom: 0.6em;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.memory-file-preview h1 { font-size: 1.4rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3em; }
+.memory-file-preview h2 { font-size: 1.2rem; }
+.memory-file-preview h3 { font-size: 1.05rem; }
+
+.memory-file-preview p {
+  margin-bottom: 0.8em;
+}
+
+.memory-file-preview code {
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.82em;
+  font-family: 'Fira Code', 'Consolas', monospace;
+}
+
+.memory-file-preview pre {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  margin-bottom: 1em;
+}
+
+.memory-file-preview pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.8rem;
+}
+
+.memory-file-preview table {
+  border-collapse: collapse;
+  margin-bottom: 1em;
+  width: 100%;
+}
+
+.memory-file-preview th,
+.memory-file-preview td {
+  border: 1px solid var(--border-color);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.memory-file-preview th {
+  background: var(--bg-primary);
+  font-weight: 600;
+}
+
+.memory-file-preview ul,
+.memory-file-preview ol {
+  padding-left: 1.5em;
+  margin-bottom: 0.8em;
+}
+
+.memory-file-preview li {
+  margin-bottom: 0.3em;
+}
+
+.memory-file-preview blockquote {
+  border-left: 3px solid var(--accent-primary);
+  padding-left: 12px;
+  color: var(--text-secondary);
+  margin: 0.8em 0;
+}
+
+.memory-file-preview img {
+  max-width: 100%;
+  border-radius: 6px;
 }

@@ -151,7 +151,9 @@ export default function MemoryGraph({ nodes, edges, retrievalPath, theme, onNode
         .attr('y2', (d: GraphEdge) => (d.target as GraphNode).y || 0);
 
       nodeGroup.attr('transform', (d: GraphNode) => `translate(${d.x},${d.y})`);
+    });
 
+    simulation.on('end', () => {
       updatePathEdgesRef.current();
     });
 

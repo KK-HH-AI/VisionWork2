@@ -106,17 +106,28 @@ class ToolRegistry:
         if not enabled:
             return f'{{"error": "Tool {name} is disabled"}}'
         import asyncio
+        import traceback
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, tool.execute(**args))
+                    future = executor.submit(self._run_tool_async, tool, args)
                     return future.result(timeout=30)
             else:
                 return asyncio.run(tool.execute(**args))
         except RuntimeError:
             return asyncio.run(tool.execute(**args))
+        except Exception as e:
+            print(f"[registry] Tool execution error for '{name}': {type(e).__name__}: {e}")
+            print(f"[registry] Args: {args}")
+            print(f"[registry] Traceback: {traceback.format_exc()}")
+            return json.dumps({"error": f"{type(e).__name__}: {str(e)}"}, ensure_ascii=False)
+
+    @staticmethod
+    def _run_tool_async(tool, args: Dict[str, Any]) -> str:
+        import asyncio
+        return asyncio.run(tool.execute(**args))
 
     def _load_skills_config(self) -> Dict[str, Any]:
         config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills_config.json")

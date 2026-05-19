@@ -20,7 +20,8 @@ class FinalAnswerTool(BaseTool):
         report = kwargs.get("report", "")
 
         if not report:
-            return json.dumps({"error": "report is required"}, ensure_ascii=False)
+            report = ("I've completed the analysis. If you have a specific project or file you'd like me to "
+                      "analyze, please provide the path and what you'd like to know about it.")
 
         return json.dumps({
             "report": report,

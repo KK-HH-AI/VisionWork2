@@ -441,6 +441,13 @@ export default function App() {
   }, [sendMessage]);
 
   const handleNewSession = useCallback(() => {
+    // Stop any running agent from previous session
+    sendMessage({ type: 'stop_agent' });
+    setIsProcessing(false);
+    setAgentRunning(false);
+    setAgentCompleted(false);
+    streamingMsgIdRef.current = null;
+
     saveCurrentSession();
     const newSession = createSession();
     setCurrentSessionId(newSession.id);
@@ -448,13 +455,20 @@ export default function App() {
     setScanTag(null);
     setSessions(loadSessions());
     setSessionSidebarOpen(false);
-  }, [saveCurrentSession]);
+  }, [saveCurrentSession, sendMessage]);
 
   const handleSelectSession = useCallback((id: string) => {
     if (id === currentSessionId) {
       setSessionSidebarOpen(false);
       return;
     }
+    // Stop any running agent from previous session
+    sendMessage({ type: 'stop_agent' });
+    setIsProcessing(false);
+    setAgentRunning(false);
+    setAgentCompleted(false);
+    streamingMsgIdRef.current = null;
+
     saveCurrentSession();
     const session = switchToSession(id);
     if (session) {
@@ -470,7 +484,7 @@ export default function App() {
     }
     setSessions(loadSessions());
     setSessionSidebarOpen(false);
-  }, [currentSessionId, saveCurrentSession]);
+  }, [currentSessionId, saveCurrentSession, sendMessage]);
 
   const handleDeleteSession = useCallback((id: string) => {
     deleteSession(id);

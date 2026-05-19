@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
-import { X, Save, FileText } from 'react-feather';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { X, Save, FileText, Code, Eye } from 'react-feather';
 
 interface MemoryFileModalProps {
   isOpen: boolean;
@@ -25,6 +27,7 @@ export default function MemoryFileModal({
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [error, setError] = useState('');
+  const [viewMode, setViewMode] = useState<'source' | 'preview'>('source');
 
   useEffect(() => {
     if (!isOpen || !filepath) return;
@@ -119,6 +122,15 @@ export default function MemoryFileModal({
           <div className="memory-file-modal-actions">
             {savedSuccess && <span className="memory-file-saved-hint">Saved</span>}
             {error && <span className="memory-file-error-hint">{error}</span>}
+            {isMarkdown && (
+              <button
+                className="btn-icon memory-file-toggle-btn"
+                onClick={() => setViewMode(viewMode === 'source' ? 'preview' : 'source')}
+                title={viewMode === 'source' ? 'Preview Markdown' : 'Edit Source'}
+              >
+                {viewMode === 'source' ? <Eye size={16} /> : <Code size={16} />}
+              </button>
+            )}
             <button
               className="btn-icon memory-file-save-btn"
               onClick={handleSave}
@@ -135,6 +147,12 @@ export default function MemoryFileModal({
         <div className="memory-file-modal-body">
           {loading ? (
             <div className="memory-file-loading">Loading...</div>
+          ) : viewMode === 'preview' && isMarkdown ? (
+            <div className="memory-file-preview">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {content}
+              </ReactMarkdown>
+            </div>
           ) : (
             <Editor
               height="100%"

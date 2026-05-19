@@ -12,12 +12,16 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "@reactflow/node-resizer": "^2.2.14",
     "d3": "^7.9.0",
     "dagre": "^0.8.5",
+    "html-to-image": "^1.11.13",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-feather": "^2.0.10",
-    "reactflow": "^11.11.4"
+    "react-markdown": "^10.1.0",
+    "reactflow": "^11.11.4",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/d3": "^7.4.3",
