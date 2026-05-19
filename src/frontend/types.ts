@@ -73,7 +73,7 @@ export interface SessionCanvasState {
 }
 
 export interface CanvasCommand {
-  cmd: 'add_node' | 'add_edge' | 'layout';
+  cmd: 'add_node' | 'add_edge' | 'layout' | 'update_node' | 'remove_node' | 'remove_edge';
   id?: string;
   label?: string;
   type?: string;

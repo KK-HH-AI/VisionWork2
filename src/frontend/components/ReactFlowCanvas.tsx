@@ -17,7 +17,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
-import { Maximize, Minimize } from 'react-feather';
+import { Maximize, Minimize, Plus, Trash2, Download, Upload, Grid, Check, X } from 'react-feather';
 import { GROUP_COLORS, NODE_TYPE_COLORS } from '../utils/constants';
 import type { CanvasCommand, CanvasNodeData, CanvasEdge as StoredCanvasEdge } from '../types';
 
@@ -106,6 +106,10 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
   const [nodes, setNodes] = useState<CanvasNode[]>([]);
   const [edges, setEdges] = useState<CanvasEdge[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [selectedNodes, setSelectedNodes] = useState<string[]>([]);
+  const [editNode, setEditNode] = useState<{ id: string; label: string; nodeType: string; group: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const nodeCounterRef = useRef(0);
 
   const commandQueueRef = useRef<CanvasCommand[]>([]);
   const processingRef = useRef(false);
@@ -161,6 +165,28 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
         }, 50);
         return [...nds, newNode];
       });
+    } else if (cmd === 'update_node') {
+      await new Promise(resolve => setTimeout(resolve, delay));
+      setNodes((nds: CanvasNode[]) =>
+        nds.map((n) => {
+          if (n.id !== command.id) return n;
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              label: command.label || n.data.label,
+              nodeType: command.type || n.data.nodeType,
+              group: command.group || n.data.group,
+            },
+          };
+        })
+      );
+    } else if (cmd === 'remove_node') {
+      await new Promise(resolve => setTimeout(resolve, delay));
+      setNodes((nds: CanvasNode[]) => nds.filter(n => n.id !== command.id));
+      setEdges((eds: CanvasEdge[]) =>
+        eds.filter(e => e.source !== command.id && e.target !== command.id)
+      );
     } else if (cmd === 'add_edge') {
       await new Promise(resolve => setTimeout(resolve, delay));
       setEdges((eds: CanvasEdge[]) => {
@@ -196,6 +222,11 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
         }, 50);
         return [...eds, newEdge];
       });
+    } else if (cmd === 'remove_edge') {
+      await new Promise(resolve => setTimeout(resolve, delay));
+      setEdges((eds: CanvasEdge[]) =>
+        eds.filter(e => !(e.source === command.source && e.target === command.target))
+      );
     } else if (cmd === 'layout') {
       await new Promise(resolve => setTimeout(resolve, 300));
       const currentNodes = latestNodesRef.current;
@@ -264,15 +295,130 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
   }, [theme, edgeColor, edgeMarkerColor, labelColor, labelBgColor]);
 
   const onNodesChangeHandler = useCallback((changes: NodeChange[]) => {
-    setNodes((nds: CanvasNode[]) => applyNodeChanges(changes, nds) as CanvasNode[]);
+    setNodes((nds: CanvasNode[]) => {
+      const updated = applyNodeChanges(changes, nds) as CanvasNode[];
+      for (const change of changes) {
+        if (change.type === 'select') {
+          if (change.selected) {
+            setSelectedNodes((prev) => {
+              if (!prev.includes(change.id)) return [...prev, change.id];
+              return prev;
+            });
+          } else {
+            setSelectedNodes((prev) => prev.filter((id) => id !== change.id));
+          }
+        }
+      }
+      return updated;
+    });
   }, [setNodes]);
 
   const onEdgesChangeHandler = useCallback((changes: EdgeChange[]) => {
     setEdges((eds: CanvasEdge[]) => applyEdgeChanges(changes, eds) as CanvasEdge[]);
   }, [setEdges]);
 
-  const toggleFullscreen = useCallback(() => {
-    setIsFullscreen((prev) => !prev);
+  const handleNodeDoubleClick = useCallback((_event: React.MouseEvent, node: CanvasNode) => {
+    setEditNode({
+      id: node.id,
+      label: node.data.label || '',
+      nodeType: node.data.nodeType || '',
+      group: node.data.group || '',
+    });
+  }, []);
+
+  const handleEditSave = useCallback(() => {
+    if (!editNode) return;
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === editNode.id
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                label: editNode.label,
+                nodeType: editNode.nodeType,
+                group: editNode.group,
+              },
+            }
+          : n
+      )
+    );
+    setEditNode(null);
+  }, [editNode]);
+
+  const handleAddNode = useCallback(() => {
+    nodeCounterRef.current += 1;
+    const id = `user-node-${Date.now()}-${nodeCounterRef.current}`;
+    const newNode: CanvasNode = {
+      id,
+      type: 'customNode',
+      position: { x: Math.random() * 300 + 100, y: Math.random() * 200 + 50 },
+      data: {
+        label: `节点 ${nodeCounterRef.current}`,
+        nodeType: 'module',
+        group: 'other',
+      },
+    };
+    setNodes((nds) => [...nds, newNode]);
+  }, []);
+
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedNodes.length === 0) return;
+    const idsToRemove = new Set(selectedNodes);
+    setNodes((nds) => nds.filter((n) => !idsToRemove.has(n.id)));
+    setEdges((eds) => eds.filter((e) => !idsToRemove.has(e.source) && !idsToRemove.has(e.target)));
+    setSelectedNodes([]);
+  }, [selectedNodes]);
+
+  const handleSaveCanvas = useCallback(() => {
+    const state = {
+      nodes: latestNodesRef.current,
+      edges: latestEdgesRef.current,
+    };
+    const json = JSON.stringify(state, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `flowchart-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleLoadCanvas = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileLoad = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = JSON.parse(evt.target?.result as string);
+        if (data.nodes && Array.isArray(data.nodes)) {
+          setNodes(data.nodes);
+          setEdges(data.edges || []);
+        }
+      } catch (err) {
+        console.error('Failed to parse flowchart file:', err);
+      }
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, []);
+
+  const handleAutoLayout = useCallback(() => {
+    const currentNodes = latestNodesRef.current;
+    const currentEdges = latestEdgesRef.current;
+    if (currentNodes.length === 0) return;
+    const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(currentNodes, currentEdges);
+    setNodes(layoutedNodes);
+    setEdges(layoutedEdges);
   }, []);
 
   useEffect(() => {
@@ -280,25 +426,67 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
       if (e.key === 'Escape' && isFullscreen) {
         setIsFullscreen(false);
       }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodes.length > 0) {
+        if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+        handleDeleteSelected();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFullscreen]);
+  }, [isFullscreen, selectedNodes, handleDeleteSelected]);
+
+  const toggleFullscreen = useCallback(() => {
+    setIsFullscreen((prev) => !prev);
+  }, []);
 
   return (
     <div className={`rf-container ${isFullscreen ? 'rf-fullscreen' : ''}`}>
-      <button
-        className="rf-fullscreen-btn"
-        onClick={toggleFullscreen}
-        title={isFullscreen ? '退出全屏' : '全屏'}
-      >
-        {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
-      </button>
+      <div className="canvas-toolbar">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json"
+          style={{ display: 'none' }}
+          onChange={handleFileLoad}
+        />
+        <button className="canvas-toolbar-btn" onClick={handleAddNode} title="添加节点">
+          <Plus size={14} />
+        </button>
+        <button
+          className="canvas-toolbar-btn"
+          onClick={handleDeleteSelected}
+          disabled={selectedNodes.length === 0}
+          title="删除选中节点 (Delete)"
+        >
+          <Trash2 size={14} />
+        </button>
+        <div className="canvas-toolbar-divider" />
+        <button className="canvas-toolbar-btn" onClick={handleAutoLayout} title="自动布局">
+          <Grid size={14} />
+        </button>
+        <div className="canvas-toolbar-divider" />
+        <button className="canvas-toolbar-btn" onClick={handleSaveCanvas} title="导出 JSON">
+          <Download size={14} />
+        </button>
+        <button className="canvas-toolbar-btn" onClick={handleLoadCanvas} title="导入 JSON">
+          <Upload size={14} />
+        </button>
+        <div className="canvas-toolbar-divider" />
+        <button
+          className="canvas-toolbar-btn canvas-toolbar-fullscreen"
+          onClick={toggleFullscreen}
+          title={isFullscreen ? '退出全屏' : '全屏'}
+        >
+          {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
+        </button>
+      </div>
+
       <ReactFlow
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChangeHandler}
         onEdgesChange={onEdgesChangeHandler}
+        onNodeDoubleClick={handleNodeDoubleClick}
         onConnect={(connection: Connection) => {
           setEdges((eds: CanvasEdge[]) => addEdge({
             ...connection,
@@ -323,6 +511,48 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
         <Background color={theme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} gap={20} />
         <Controls className="rf-controls" />
       </ReactFlow>
+
+      {editNode && (
+        <div className="canvas-edit-overlay" onClick={() => setEditNode(null)}>
+          <div className="canvas-edit-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="canvas-edit-header">编辑节点</div>
+            <div className="canvas-edit-field">
+              <label>标签</label>
+              <input
+                type="text"
+                value={editNode.label}
+                onChange={(e) => setEditNode({ ...editNode, label: e.target.value })}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleEditSave(); if (e.key === 'Escape') setEditNode(null); }}
+                autoFocus
+              />
+            </div>
+            <div className="canvas-edit-field">
+              <label>类型</label>
+              <input
+                type="text"
+                value={editNode.nodeType}
+                onChange={(e) => setEditNode({ ...editNode, nodeType: e.target.value })}
+              />
+            </div>
+            <div className="canvas-edit-field">
+              <label>分组</label>
+              <input
+                type="text"
+                value={editNode.group}
+                onChange={(e) => setEditNode({ ...editNode, group: e.target.value })}
+              />
+            </div>
+            <div className="canvas-edit-actions">
+              <button className="canvas-edit-btn cancel" onClick={() => setEditNode(null)}>
+                <X size={14} /> 取消
+              </button>
+              <button className="canvas-edit-btn save" onClick={handleEditSave}>
+                <Check size={14} /> 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

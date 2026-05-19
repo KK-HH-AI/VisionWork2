@@ -9,6 +9,7 @@ from .analyze_module import AnalyzeModuleTool
 from .draw_relation import DrawRelationTool
 from .search_memory import SearchMemoryTool
 from .final_answer import FinalAnswerTool
+from .canvas_read import CanvasReadTool
 
 
 class ToolRegistry:
@@ -54,6 +55,7 @@ class ToolRegistry:
             DrawRelationTool,
             SearchMemoryTool,
             FinalAnswerTool,
+            CanvasReadTool,
         ]
         for tool_cls in tool_classes:
             tool_instance = tool_cls()

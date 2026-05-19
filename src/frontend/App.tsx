@@ -7,6 +7,7 @@ import ChatView from './components/ChatView';
 import ReactFlowCanvas from './components/ReactFlowCanvas';
 import type { ReactFlowCanvasHandle } from './components/ReactFlowCanvas';
 import MemoryGraph from './components/MemoryGraph';
+import MemoryFileModal from './components/MemoryFileModal';
 import ConfigPanel from './components/ConfigPanel';
 import SkillManager from './components/SkillManager';
 import type { ChatMessage, WSMessage, SessionData, CanvasEdge as StoredCanvasEdge, GraphNode, GraphEdge } from './types';
@@ -55,6 +56,9 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [scanTag, setScanTag] = useState<string | null>(null);
   const [rightPanelInitialTab, setRightPanelInitialTab] = useState<'notes' | 'files' | undefined>(undefined);
+  const [memoryFileModalOpen, setMemoryFileModalOpen] = useState(false);
+  const [memoryFileModalPath, setMemoryFileModalPath] = useState('');
+  const [memoryFileModalName, setMemoryFileModalName] = useState('');
 
   const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
   const [graphEdges, setGraphEdges] = useState<GraphEdge[]>([]);
@@ -394,6 +398,35 @@ export default function App() {
         if (msg.path || scanTag) {
           payload.path = msg.path || scanTag;
         }
+
+        const canvasState = canvasRef.current?.getCanvasState();
+        if (canvasState && (canvasState.nodes.length > 0 || canvasState.edges.length > 0)) {
+          const lines: string[] = [];
+          lines.push('节点:');
+          for (const node of canvasState.nodes) {
+            const label = node.data?.label || node.id;
+            const nodeType = node.data?.nodeType || '';
+            const typeStr = nodeType ? ` [${nodeType}]` : '';
+            lines.push(`  - ${node.id}: ${label}${typeStr}`);
+          }
+          lines.push('边:');
+          for (const edge of canvasState.edges) {
+            const label = edge.label ? ` (${edge.label})` : '';
+            lines.push(`  - ${edge.source} -> ${edge.target}${label}`);
+          }
+          payload.canvas_context = lines.join('\n');
+          payload.canvas_nodes = canvasState.nodes.map((n) => ({
+            id: n.id,
+            data: n.data,
+          }));
+          payload.canvas_edges = canvasState.edges.map((e) => ({
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            label: e.label || '',
+          }));
+        }
+
         sendMessage(payload);
       } else {
         sendMessage(message);
@@ -619,9 +652,14 @@ export default function App() {
     document.body.style.userSelect = 'none';
   }, [rightPanelWidth]);
 
-  const handleMemoryGraphNodeClick = useCallback((_node: GraphNode) => {
-    setRightPanelInitialTab('notes');
-    setRightPanelOpen(true);
+  const handleMemoryGraphNodeClick = useCallback((node: GraphNode) => {
+    if (node.path && node.path.endsWith('.md')) {
+      const parts = node.path.replace(/\\/g, '/').split('/');
+      const filename = parts[parts.length - 1];
+      setMemoryFileModalPath(node.path);
+      setMemoryFileModalName(filename);
+      setMemoryFileModalOpen(true);
+    }
   }, []);
 
   return (
@@ -735,6 +773,14 @@ export default function App() {
           />
         </div>
       </div>
+
+      <MemoryFileModal
+        isOpen={memoryFileModalOpen}
+        filepath={memoryFileModalPath}
+        filename={memoryFileModalName}
+        backendPort={backendPortRef.current}
+        onClose={() => setMemoryFileModalOpen(false)}
+      />
     </div>
   );
 }

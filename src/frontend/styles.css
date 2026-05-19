@@ -207,6 +207,154 @@ body {
   font-size: 0.85rem;
 }
 
+/* ==================== Canvas Toolbar ==================== */
+.canvas-toolbar {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.canvas-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.canvas-toolbar-btn:hover {
+  background: var(--hover);
+  color: var(--text-primary);
+}
+
+.canvas-toolbar-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.canvas-toolbar-btn:disabled:hover {
+  background: transparent;
+}
+
+.canvas-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.canvas-toolbar-fullscreen {
+  margin-left: 2px;
+}
+
+/* ==================== Canvas Edit Dialog ==================== */
+.canvas-edit-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.canvas-edit-dialog {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  min-width: 300px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.canvas-edit-header {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+}
+
+.canvas-edit-field {
+  margin-bottom: 12px;
+}
+
+.canvas-edit-field label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+.canvas-edit-field input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.canvas-edit-field input:focus {
+  border-color: var(--accent);
+}
+
+.canvas-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.canvas-edit-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.canvas-edit-btn.save {
+  background: var(--accent);
+  color: #fff;
+}
+
+.canvas-edit-btn.save:hover {
+  opacity: 0.9;
+}
+
+.canvas-edit-btn.cancel {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.canvas-edit-btn.cancel:hover {
+  background: var(--hover);
+}
+
 .session-item {
   display: flex;
   align-items: center;
@@ -1711,4 +1859,90 @@ body {
   font-size: 0.75rem;
   color: var(--text-tertiary);
   margin-top: 4px;
+}
+
+.memory-file-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+.memory-file-modal {
+  width: 80vw;
+  max-width: 1000px;
+  height: 80vh;
+  max-height: 800px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.memory-file-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.memory-file-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.memory-file-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.memory-file-saved-hint {
+  font-size: 0.75rem;
+  color: #34c759;
+  animation: fadeIn 0.2s ease;
+}
+
+.memory-file-error-hint {
+  font-size: 0.75rem;
+  color: #ff3b30;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-file-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.memory-file-modal-body {
+  flex: 1;
+  overflow: hidden;
+}
+
+.memory-file-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-tertiary);
+  font-size: 0.85rem;
 }

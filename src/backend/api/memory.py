@@ -2,10 +2,16 @@ import os
 import re
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from ..services.scanner import build_dir_tree
 from ..core.config import WORKSPACE_ROOT
 
 router = APIRouter()
+
+
+class SaveMemoryFileRequest(BaseModel):
+    filepath: str
+    content: str
 
 
 def _extract_node_id_from_filename(filename: str) -> str:
@@ -106,5 +112,34 @@ async def get_workspace_tree():
             return JSONResponse({"success": True, "workspace_dir": workspace_dir, "tree": []})
         tree = build_dir_tree(workspace_dir)
         return JSONResponse({"success": True, "workspace_dir": workspace_dir, "tree": tree})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/read-memory-file")
+async def read_memory_file(filepath: str = Query(...)):
+    try:
+        if not os.path.exists(filepath):
+            return JSONResponse({"success": False, "error": "File not found", "content": ""})
+        if not filepath.endswith('.md'):
+            return JSONResponse({"success": False, "error": "Only .md files can be read", "content": ""})
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return JSONResponse({"success": True, "filepath": filepath, "content": content})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/save-memory-file")
+async def save_memory_file(request: SaveMemoryFileRequest):
+    try:
+        filepath = request.filepath
+        content = request.content
+        if not filepath:
+            return JSONResponse({"success": False, "error": "filepath is required"})
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return JSONResponse({"success": True, "filepath": filepath})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

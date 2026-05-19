@@ -198,6 +198,9 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
             elif message.get("type") == "chat_message":
                 content = message.get("content", "")
                 folder_path = message.get("path", "")
+                canvas_context = message.get("canvas_context", "")
+                canvas_nodes = message.get("canvas_nodes", [])
+                canvas_edges = message.get("canvas_edges", [])
 
                 api_url = message.get("api_url") or stored_config["api_url"]
                 api_key = message.get("api_key") or stored_config["api_key"]
@@ -218,6 +221,9 @@ async def handle_websocket(websocket: WebSocket, valid_token: str):
                             model_name=model_name,
                             profession="Software Engineer",
                             stop_flag=current_agent_stop_flag,
+                            canvas_context=canvas_context,
+                            canvas_nodes=canvas_nodes,
+                            canvas_edges=canvas_edges,
                         )
                     )
                 else:
@@ -247,6 +253,9 @@ async def _run_agent_loop(
     model_name: str,
     profession: str,
     stop_flag: str,
+    canvas_context: str = "",
+    canvas_nodes: list = None,
+    canvas_edges: list = None,
 ):
     event_queue = queue.Queue()
 
@@ -258,6 +267,9 @@ async def _run_agent_loop(
         model_name=model_name,
         profession=profession,
         event_queue=event_queue,
+        canvas_context=canvas_context,
+        canvas_nodes=canvas_nodes or [],
+        canvas_edges=canvas_edges or [],
     )
 
     graph = build_agent_graph()
