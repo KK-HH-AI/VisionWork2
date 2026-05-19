@@ -25,6 +25,8 @@ interface ChatViewProps {
   onOpenSkillManager?: () => void;
   isProcessing?: boolean;
   onStop?: () => void;
+  agentRunning?: boolean;
+  agentCompleted?: boolean;
 }
 
 function buildThinkingBlocks(messages: ChatMessage[]): (ChatMessage | ThinkingBlock)[] {
@@ -58,6 +60,8 @@ export default function ChatView({
   onOpenSkillManager,
   isProcessing,
   onStop,
+  agentRunning,
+  agentCompleted,
 }: ChatViewProps) {
   const [input, setInput] = useState('');
   const [expandedBlocks, setExpandedBlocks] = useState<Set<number>>(new Set());
@@ -171,6 +175,15 @@ export default function ChatView({
             <span className="typing-dot" />
             <span className="typing-dot" />
             <span className="typing-dot" />
+          </div>
+        )}
+        {agentCompleted && (
+          <div className="completion-indicator">
+            <svg className="completion-checkmark" viewBox="0 0 52 52" width="28" height="28">
+              <circle className="completion-circle" cx="26" cy="26" r="24" fill="none" stroke="#34c759" strokeWidth="3" />
+              <path className="completion-check" fill="none" stroke="#34c759" strokeWidth="3" d="M14 27l7 7 16-16" />
+            </svg>
+            <span className="completion-text">完成</span>
           </div>
         )}
         <div ref={messagesEndRef} />

@@ -19,6 +19,9 @@ class AgentState(TypedDict):
     memory_dir: str
     canvas_nodes: list
     canvas_edges: list
+    memory_graph_nodes: list
+    memory_graph_edges: list
+    retrieval_path: list
     should_stop: bool
     api_url: str
     api_key: str
@@ -106,6 +109,8 @@ OBSERVE_PROMPT = """你是一位{profession}，正在分析一个代码项目。
 def _push_event(event_queue, event: dict):
     if event_queue is not None:
         try:
+            if event.get("type") in ("memory_path_update", "memory_graph"):
+                print(f"[graph.py] _push_event: type={event.get('type')}, nodeIds={event.get('nodeIds')}, nodes_count={len(event.get('nodes', []))}")
             event_queue.put_nowait(event)
         except Exception:
             pass
@@ -342,6 +347,8 @@ def execute_node(state: AgentState) -> AgentState:
         args = step.get("args", {})
         thought = step.get("thought", "")
 
+        print(f"[graph.py] execute_node: step {i+1}/{len(plan)}, action={action}, args_keys={list(args.keys()) if args else 'none'}")
+
         _push_event(event_queue, {
             "type": "tool_call",
             "tool_name": action,
@@ -352,7 +359,7 @@ def execute_node(state: AgentState) -> AgentState:
         if "folder_path" not in args and project_path:
             args["folder_path"] = project_path
 
-        context_tools = {"analyze_module", "search_memory"}
+        context_tools = {"analyze_module", "search_memory", "read_file"}
         if action in context_tools:
             if "api_url" not in args:
                 args["api_url"] = state.get("api_url", "")
@@ -412,11 +419,97 @@ def execute_node(state: AgentState) -> AgentState:
                 except Exception:
                     pass
 
+            if action == "read_file":
+                try:
+                    filepath = args.get("filepath", "") or args.get("file_path", "")
+                    if filepath and project_path:
+                        node_id = hashlib.md5(os.path.relpath(filepath, project_path).encode()).hexdigest()[:12]
+                        memory_dir = state.get("memory_dir", "")
+                        if memory_dir and os.path.isdir(memory_dir):
+                            import glob as glob_mod
+                            pattern = os.path.join(memory_dir, f"*_{node_id}.md")
+                            matches = glob_mod.glob(pattern)
+                            if matches:
+                                retrieval_path = list(state.get("retrieval_path", []))
+                                if node_id not in retrieval_path:
+                                    retrieval_path.append(node_id)
+                                    state["retrieval_path"] = retrieval_path
+                                    print(f"[graph.py] read_file: found memory note for {filepath}, pushing memory_path_update with nodeIds: {retrieval_path}")
+                                    _push_event(event_queue, {
+                                        "type": "memory_path_update",
+                                        "nodeIds": list(retrieval_path),
+                                    })
+                except Exception:
+                    pass
+
+            if action == "analyze_module":
+                try:
+                    result_data = json.loads(result_json)
+                    node_id = result_data.get("node_id", "")
+                    filename = result_data.get("filename", "")
+                    filepath = result_data.get("filepath", "")
+                    note_path = result_data.get("note_path", "")
+                    group = result_data.get("group", "other")
+
+                    if node_id and note_path:
+                        memory_nodes = list(state.get("memory_graph_nodes", []))
+                        existing_ids = {n["id"] for n in memory_nodes}
+                        if node_id not in existing_ids:
+                            memory_nodes.append({
+                                "id": node_id,
+                                "label": filename,
+                                "group": group,
+                                "path": note_path,
+                                "source_file": filepath,
+                            })
+                            state["memory_graph_nodes"] = memory_nodes
+
+                        _push_event(event_queue, {
+                            "type": "memory_graph",
+                            "nodes": list(state["memory_graph_nodes"]),
+                            "edges": list(state.get("memory_graph_edges", [])),
+                            "memory_dir": state.get("memory_dir", ""),
+                        })
+
+                    if node_id:
+                        retrieval_path = list(state.get("retrieval_path", []))
+                        if node_id not in retrieval_path:
+                            retrieval_path.append(node_id)
+                            state["retrieval_path"] = retrieval_path
+                            print(f"[graph.py] analyze_module: pushing memory_path_update with nodeIds: {retrieval_path}")
+                            _push_event(event_queue, {
+                                "type": "memory_path_update",
+                                "nodeIds": list(retrieval_path),
+                            })
+                except Exception:
+                    pass
+
+            if action == "search_memory":
+                try:
+                    result_data = json.loads(result_json)
+                    results = result_data.get("results", [])
+                    if results:
+                        retrieval_path = list(state.get("retrieval_path", []))
+                        for r in results:
+                            nid = r.get("node_id", "")
+                            if nid and nid not in retrieval_path:
+                                retrieval_path.append(nid)
+                        state["retrieval_path"] = retrieval_path
+
+                        print(f"[graph.py] search_memory: pushing memory_path_update with nodeIds: {retrieval_path}")
+                        _push_event(event_queue, {
+                            "type": "memory_path_update",
+                            "nodeIds": list(retrieval_path),
+                        })
+                except Exception:
+                    pass
+
             messages = list(state.get("messages", []))
             messages.append(AIMessage(content=f"Executed tool {action}: {thought}\nResult preview: {result_preview}"))
             state["messages"] = messages
 
         except Exception as e:
+            print(f"[graph.py] execute_node: step {i+1}/{len(plan)} FAILED, action={action}, error={e}")
             _push_event(event_queue, {
                 "type": "tool_result",
                 "tool_name": action,
@@ -425,6 +518,7 @@ def execute_node(state: AgentState) -> AgentState:
 
         state["current_step"] = i + 1
 
+    print(f"[graph.py] execute_node: completed, final current_step={state['current_step']}/{len(plan)}")
     return state
 
 
@@ -593,6 +687,9 @@ def build_initial_agent_state(
         "memory_dir": memory_dir,
         "canvas_nodes": [],
         "canvas_edges": [],
+        "memory_graph_nodes": [],
+        "memory_graph_edges": [],
+        "retrieval_path": [],
         "should_stop": False,
         "api_url": api_url,
         "api_key": api_key,

@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import * as d3 from 'd3';
+import { GitBranch, Search } from 'react-feather';
 import { GROUP_COLORS } from '../utils/constants';
 import type { GraphNode, GraphEdge } from '../types';
 
@@ -20,19 +21,31 @@ interface PathEdge {
 export default function MemoryGraph({ nodes, edges, retrievalPath, theme, onNodeClick }: MemoryGraphProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const simulationRef = useRef<d3.Simulation<GraphNode, GraphEdge> | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const prevNodeIdsRef = useRef<string>('');
   const pathGroupRef = useRef<{
     g: d3.Selection<SVGGElement, unknown, null, undefined>;
     nodes: GraphNode[];
     simulation: d3.Simulation<GraphNode, GraphEdge>;
     theme: string;
   } | null>(null);
+  const pathTimerRef = useRef<d3.Timer | null>(null);
+  const updatePathEdgesRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (!svgRef.current || nodes.length === 0) return;
 
+    const currentIds = nodes.map(n => n.id).sort().join(',');
+    if (currentIds === prevNodeIdsRef.current && prevNodeIdsRef.current !== '') {
+      return;
+    }
+    prevNodeIdsRef.current = currentIds;
+
     const container = svgRef.current.parentElement;
     const width = container?.clientWidth || 300;
     const height = container?.clientHeight || 500;
+
+    if (width === 0 || height === 0) return;
 
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
@@ -82,7 +95,7 @@ export default function MemoryGraph({ nodes, edges, retrievalPath, theme, onNode
       .data(nodes)
       .join('g')
       .style('cursor', 'pointer')
-      .on('click', (_event, d) => {
+      .on('dblclick', (_event, d) => {
         if (onNodeClick && d.path) {
           onNodeClick(d);
         }
@@ -139,7 +152,7 @@ export default function MemoryGraph({ nodes, edges, retrievalPath, theme, onNode
 
       nodeGroup.attr('transform', (d: GraphNode) => `translate(${d.x},${d.y})`);
 
-      updatePathEdges();
+      updatePathEdgesRef.current();
     });
 
     return () => {
@@ -148,27 +161,93 @@ export default function MemoryGraph({ nodes, edges, retrievalPath, theme, onNode
   }, [nodes, edges, theme]);
 
   useEffect(() => {
+    const container = svgRef.current?.parentElement;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      const svg = d3.select(svgRef.current);
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w > 0 && h > 0) {
+        svg.attr('width', w).attr('height', h);
+        const sim = simulationRef.current;
+        if (sim) {
+          sim.force('center', d3.forceCenter(w / 2, h / 2));
+          sim.alpha(0.1).restart();
+        }
+      }
+    });
+
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  useEffect(() => {
+    console.log('[MemoryGraph] retrievalPath changed:', retrievalPath);
     updatePathEdges();
   }, [retrievalPath]);
 
   function updatePathEdges() {
-    if (!pathGroupRef.current) return;
+    if (!pathGroupRef.current) {
+      console.log('[MemoryGraph] updatePathEdges: pathGroupRef is null, skipping');
+      return;
+    }
     const { g, nodes: currentNodes, simulation } = pathGroupRef.current;
-    if (!g || currentNodes.length === 0) return;
+    if (!g || currentNodes.length === 0) {
+      console.log('[MemoryGraph] updatePathEdges: no g or no nodes, skipping');
+      return;
+    }
+
+    if (pathTimerRef.current) {
+      pathTimerRef.current.stop();
+      pathTimerRef.current = null;
+    }
 
     g.selectAll('*').remove();
 
-    if (!retrievalPath || retrievalPath.length < 2) return;
+    if (!retrievalPath || retrievalPath.length === 0) {
+      console.log('[MemoryGraph] updatePathEdges: retrievalPath empty, cleared');
+      return;
+    }
 
     const nodeMap: Record<string, GraphNode> = {};
     currentNodes.forEach((n: GraphNode) => { nodeMap[n.id] = n; });
 
+    const pathNodeIds = retrievalPath.filter(id => nodeMap[id]);
+    console.log('[MemoryGraph] updatePathEdges: retrievalPath ids:', retrievalPath, 'matched nodes:', pathNodeIds);
+
+    pathNodeIds.forEach((nodeId, index) => {
+      const node = nodeMap[nodeId];
+      const isLatest = index === pathNodeIds.length - 1;
+
+      g.append('circle')
+        .attr('class', 'path-node-highlight')
+        .attr('cx', node.x || 0)
+        .attr('cy', node.y || 0)
+        .attr('r', 14)
+        .attr('fill', 'none')
+        .attr('stroke', '#e94560')
+        .attr('stroke-width', isLatest ? 3 : 2)
+        .attr('stroke-dasharray', isLatest ? 'none' : '6,3')
+        .attr('opacity', isLatest ? 1 : 0.6);
+
+      g.append('text')
+        .attr('class', 'path-node-label')
+        .attr('x', (node.x || 0) + 18)
+        .attr('y', (node.y || 0) - 10)
+        .attr('fill', '#e94560')
+        .attr('font-size', '9px')
+        .attr('font-family', 'sans-serif')
+        .attr('opacity', 0.9)
+        .text(`#${index + 1}`);
+    });
+
+    if (pathNodeIds.length < 2) return;
+
     const pathEdges: PathEdge[] = [];
-    for (let i = 0; i < retrievalPath.length - 1; i++) {
-      const sourceId = retrievalPath[i];
-      const targetId = retrievalPath[i + 1];
-      const sourceNode = nodeMap[sourceId];
-      const targetNode = nodeMap[targetId];
+    for (let i = 0; i < pathNodeIds.length - 1; i++) {
+      const sourceNode = nodeMap[pathNodeIds[i]];
+      const targetNode = nodeMap[pathNodeIds[i + 1]];
       if (sourceNode && targetNode) {
         pathEdges.push({
           source: sourceNode,
@@ -213,10 +292,59 @@ export default function MemoryGraph({ nodes, edges, retrievalPath, theme, onNode
         });
     }
 
-    d3.timer(animatePathDots);
+    pathTimerRef.current = d3.timer(animatePathDots);
+  }
+
+  updatePathEdgesRef.current = updatePathEdges;
+
+  const retrievalNodes = useMemo(() => {
+    if (!retrievalPath || retrievalPath.length === 0) return [];
+    const nodeMap: Record<string, GraphNode> = {};
+    nodes.forEach(n => { nodeMap[n.id] = n; });
+    return retrievalPath
+      .filter(id => nodeMap[id])
+      .map((id, idx) => ({
+        index: idx + 1,
+        id,
+        label: nodeMap[id].label || id,
+        path: nodeMap[id].path || '',
+      }));
+  }, [retrievalPath, nodes]);
+
+  if (nodes.length === 0) {
+    return (
+      <div className="memory-graph-empty">
+        <GitBranch size={24} />
+        <p>暂无记忆文件</p>
+        <p className="empty-hint">workspace 中没有 .md 记忆文件</p>
+      </div>
+    );
   }
 
   return (
-    <svg ref={svgRef} className="memory-graph-svg"></svg>
+    <div className="memory-graph-wrapper">
+      <svg ref={svgRef} className="memory-graph-svg"></svg>
+      {retrievalNodes.length > 0 && (
+        <div className="memory-retrieval-list">
+          <div className="memory-retrieval-list-header">
+            <Search size={12} />
+            <span>记忆检索路径</span>
+            <span style={{ marginLeft: 'auto', fontSize: '0.65rem', color: '#e94560' }}>
+              {retrievalNodes.length} 个文件
+            </span>
+          </div>
+          {retrievalNodes.map((item) => (
+            <div key={item.id} className="memory-retrieval-item" title={item.path}>
+              <span className="memory-retrieval-index">#{item.index}</span>
+              <span className="memory-retrieval-path">
+                {item.path
+                  ? item.path.replace(/\\/g, '/').split('/').pop() || item.path
+                  : item.label}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

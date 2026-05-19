@@ -6,9 +6,10 @@ import RightPanel from './components/RightPanel';
 import ChatView from './components/ChatView';
 import ReactFlowCanvas from './components/ReactFlowCanvas';
 import type { ReactFlowCanvasHandle } from './components/ReactFlowCanvas';
+import MemoryGraph from './components/MemoryGraph';
 import ConfigPanel from './components/ConfigPanel';
 import SkillManager from './components/SkillManager';
-import type { ChatMessage, WSMessage, SessionData, CanvasEdge as StoredCanvasEdge } from './types';
+import type { ChatMessage, WSMessage, SessionData, CanvasEdge as StoredCanvasEdge, GraphNode, GraphEdge } from './types';
 import {
   loadSessions,
   loadCurrentSessionId,
@@ -55,6 +56,10 @@ export default function App() {
   const [scanTag, setScanTag] = useState<string | null>(null);
   const [rightPanelInitialTab, setRightPanelInitialTab] = useState<'notes' | 'files' | undefined>(undefined);
 
+  const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
+  const [graphEdges, setGraphEdges] = useState<GraphEdge[]>([]);
+  const [retrievalPath, setRetrievalPath] = useState<string[]>([]);
+
   const [apiUrl, setApiUrl] = useState('https://api.openai.com/v1');
   const [apiKey, setApiKey] = useState('');
   const [modelName, setModelName] = useState('gpt-3.5-turbo');
@@ -64,18 +69,25 @@ export default function App() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const canvasRef = useRef<ReactFlowCanvasHandle>(null);
 
-  const [chatWidth, setChatWidth] = useState(45);
+  const [chatWidth, setChatWidth] = useState(40);
+  const [canvasWidth, setCanvasWidth] = useState(35);
   const [sidebarWidth, setSidebarWidth] = useState(280);
   const [rightPanelWidth, setRightPanelWidth] = useState(300);
   const isDraggingCenterRef = useRef(false);
+  const isDraggingCanvasMemRef = useRef(false);
   const isDraggingSidebarRef = useRef(false);
   const isDraggingRightPanelRef = useRef(false);
   const streamingMsgIdRef = useRef<string | null>(null);
+  const [agentRunning, setAgentRunning] = useState(false);
+  const [agentCompleted, setAgentCompleted] = useState(false);
 
   const messageHandlers = {
     onChatResponse: (msg: WSMessage) => {
       setIsProcessing(false);
       streamingMsgIdRef.current = null;
+      setAgentRunning(false);
+      setAgentCompleted(true);
+      setTimeout(() => setAgentCompleted(false), 3000);
       setChatMessages((prev) => [
         ...prev,
         {
@@ -205,6 +217,28 @@ export default function App() {
     onStopped: () => {
       setIsProcessing(false);
       streamingMsgIdRef.current = null;
+      setAgentRunning(false);
+      setAgentCompleted(true);
+      setTimeout(() => setAgentCompleted(false), 3000);
+    },
+    onMemoryGraph: (msg: WSMessage) => {
+      const newNodes: GraphNode[] = msg.nodes || [];
+      setGraphNodes((prev) => {
+        const existingIds = new Set(prev.map((n) => n.id));
+        const merged = [...prev];
+        for (const n of newNodes) {
+          if (!existingIds.has(n.id)) {
+            merged.push(n);
+            existingIds.add(n.id);
+          }
+        }
+        return merged;
+      });
+      setGraphEdges(msg.edges || []);
+    },
+    onMemoryPathUpdate: (msg: WSMessage) => {
+      console.log('[App] onMemoryPathUpdate received:', msg.nodeIds);
+      setRetrievalPath(msg.nodeIds || []);
     },
   };
 
@@ -247,6 +281,19 @@ export default function App() {
       setSessions(loadSessions());
     }
   }, []);
+
+  useEffect(() => {
+    if (connected && backendPortRef.current > 0) {
+      fetch(`http://127.0.0.1:${backendPortRef.current}/get-memory-graph-nodes`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.success && data.nodes) {
+            setGraphNodes(data.nodes);
+          }
+        })
+        .catch(err => console.error('Failed to fetch memory graph nodes:', err));
+    }
+  }, [connected]);
 
   const saveCurrentSession = useCallback(() => {
     if (!currentSessionId) return;
@@ -310,16 +357,30 @@ export default function App() {
 
   const handleSendMessage = useCallback(
     (message: unknown) => {
-      const msg = message as { type: string; content: string; path?: string };
+      const msg = message as { type: string; content: string; path?: string; files?: string[] };
       if (msg.type === 'chat_message') {
         setIsProcessing(true);
+        setAgentRunning(true);
+        setAgentCompleted(false);
         streamingMsgIdRef.current = null;
+        const projectPath = msg.path || scanTag;
+        let displayContent = msg.content;
+        if (projectPath) {
+          displayContent = `📁 **${projectPath}**\n\n${msg.content}`;
+        }
+        if (msg.files && msg.files.length > 0) {
+          const fileNames = msg.files.map((f: string) => {
+            const parts = f.replace(/\\/g, '/').split('/');
+            return parts[parts.length - 1];
+          }).join(', ');
+          displayContent = `📎 ${fileNames}\n\n${displayContent}`;
+        }
         setChatMessages((prev) => [
           ...prev,
           {
             id: nextMsgId(),
             role: 'user',
-            content: msg.content,
+            content: displayContent,
             timestamp: Date.now(),
           },
         ]);
@@ -435,15 +496,6 @@ export default function App() {
 
       if (folderPath) {
         setScanTag(folderPath);
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: nextMsgId(),
-            role: 'user',
-            content: `Selected folder: ${folderPath}`,
-            timestamp: Date.now(),
-          },
-        ]);
       }
     } catch (err) {
       console.error('Failed to select folder:', err);
@@ -480,7 +532,8 @@ export default function App() {
       if (!container) return;
       const rect = container.getBoundingClientRect();
       const pct = ((e.clientX - rect.left) / rect.width) * 100;
-      setChatWidth(Math.max(20, Math.min(80, pct)));
+      const maxChat = 100 - canvasWidth - 10;
+      setChatWidth(Math.max(15, Math.min(maxChat, pct)));
     };
     const handleMouseUp = () => {
       isDraggingCenterRef.current = false;
@@ -493,7 +546,32 @@ export default function App() {
     document.addEventListener('mouseup', handleMouseUp);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, []);
+  }, [canvasWidth]);
+
+  const handleCanvasMemMouseDown = useCallback(() => {
+    isDraggingCanvasMemRef.current = true;
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDraggingCanvasMemRef.current) return;
+      const container = document.querySelector('.main-center');
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const pct = ((e.clientX - rect.left) / rect.width) * 100;
+      const minCanvas = 15;
+      const maxCanvas = 100 - chatWidth - 10;
+      setCanvasWidth(Math.max(minCanvas, Math.min(maxCanvas, pct - chatWidth)));
+    };
+    const handleMouseUp = () => {
+      isDraggingCanvasMemRef.current = false;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [chatWidth]);
 
   const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -526,7 +604,7 @@ export default function App() {
     const handleMouseMove = (ev: MouseEvent) => {
       if (!isDraggingRightPanelRef.current) return;
       const delta = startX - ev.clientX;
-      setRightPanelWidth(Math.max(200, Math.min(500, startWidth + delta)));
+      setRightPanelWidth(Math.max(200, Math.min(800, startWidth + delta)));
     };
     const handleMouseUp = () => {
       isDraggingRightPanelRef.current = false;
@@ -540,6 +618,11 @@ export default function App() {
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   }, [rightPanelWidth]);
+
+  const handleMemoryGraphNodeClick = useCallback((_node: GraphNode) => {
+    setRightPanelInitialTab('notes');
+    setRightPanelOpen(true);
+  }, []);
 
   return (
     <div className="app-container">
@@ -632,11 +715,24 @@ export default function App() {
             onOpenSkillManager={handleOpenSkillManager}
             isProcessing={isProcessing}
             onStop={handleStop}
+            agentRunning={agentRunning}
+            agentCompleted={agentCompleted}
           />
         </div>
         <div className="center-resize-handle" onMouseDown={handleCenterMouseDown} />
-        <div className="canvas-panel" style={{ width: `${100 - chatWidth}%` }}>
+        <div className="canvas-panel" style={{ width: `${canvasWidth}%` }}>
           <ReactFlowCanvas ref={canvasRef} theme={theme} sessionKey={currentSessionId || undefined} />
+        </div>
+        <div className="canvas-memory-resize-handle" onMouseDown={handleCanvasMemMouseDown} />
+        <div className="memory-graph-panel" style={{ width: `${100 - chatWidth - canvasWidth}%` }}>
+          <MemoryGraph
+            key={`mg-${graphNodes.map(n => n.id).sort().join(',')}`}
+            nodes={graphNodes}
+            edges={graphEdges}
+            retrievalPath={retrievalPath}
+            theme={theme}
+            onNodeClick={handleMemoryGraphNodeClick}
+          />
         </div>
       </div>
     </div>

@@ -313,6 +313,8 @@ async def _run_agent_loop(
                 break
 
             try:
+                if msg_type in ("memory_path_update", "memory_graph"):
+                    print(f"[ws.py] sending WebSocket event: type={msg_type}, nodeIds={msg.get('nodeIds')}, nodes_count={len(msg.get('nodes', []))}")
                 await websocket.send_json(msg)
             except RuntimeError:
                 break
