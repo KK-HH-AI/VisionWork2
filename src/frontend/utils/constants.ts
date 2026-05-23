@@ -5,19 +5,19 @@ export const GROUP_COLORS: Record<string, string> = {
   'typescript': '#3178C6',
   'java': '#ED8B00',
   'cpp': '#659AD2',
-  'c': '#555555',
+  'c': '#888888',
   'web': '#E34F26',
-  'config': '#6C6C6C',
-  'doc': '#8E8E8E',
+  'config': '#8B5CF6',
+  'doc': '#06B6D4',
   'data': '#4CAF50',
-  'image': '#9C27B0',
+  'image': '#EC4899',
   'module': '#4B8BBE',
   'function': '#E34F26',
   'class': '#ED8B00',
-  'interface': '#61DAFB',
+  'interface': '#38BDF8',
   'service': '#4CAF50',
-  'component': '#9C27B0',
-  'other': '#9E9E9E'
+  'component': '#A855F7',
+  'other': '#94A3B8'
 };
 
 export const NODE_TYPE_COLORS: Record<string, string> = {
@@ -25,8 +25,8 @@ export const NODE_TYPE_COLORS: Record<string, string> = {
   'function': '#E34F26',
   'class': '#ED8B00',
   'data': '#4CAF50',
-  'config': '#6C6C6C',
-  'interface': '#61DAFB',
+  'config': '#8B5CF6',
+  'interface': '#38BDF8',
   'service': '#4CAF50',
-  'component': '#9C27B0',
+  'component': '#A855F7',
 };

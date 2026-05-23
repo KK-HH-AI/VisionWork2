@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, FolderPlus, X, Folder, Settings, Square, ChevronDown, ChevronRight } from 'react-feather';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface ChatMessage {
   id: string;
@@ -153,7 +155,9 @@ export default function ChatView({
                     <div className="thinking-block-body">
                       {block.messages.map((msg) => (
                         <div key={msg.id} className="thinking-step">
-                          <div className="thinking-step-content">{msg.content}</div>
+                          <div className="thinking-step-content">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -165,7 +169,9 @@ export default function ChatView({
             const msg = item as ChatMessage;
             return (
               <div key={msg.id} className={`chat-message ${msg.role}${msg.subtype === 'error' ? ' error' : ''}`}>
-                <div className="chat-message-bubble">{msg.content}</div>
+                <div className="chat-message-bubble">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+              </div>
               </div>
             );
           })

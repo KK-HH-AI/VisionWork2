@@ -119,10 +119,11 @@ export default function MemoryGraph({ nodes, edges, retrievalPath, theme, onNode
       );
 
     nodeGroup.append('circle')
-      .attr('r', 7)
+      .attr('r', 10)
       .attr('fill', (d: GraphNode) => GROUP_COLORS[d.group] || GROUP_COLORS['other'])
-      .attr('stroke', theme === 'dark' ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)')
-      .attr('stroke-width', 1.5);
+      .attr('stroke', theme === 'dark' ? '#fff' : 'rgba(0,0,0,0.45)')
+      .attr('stroke-width', 2.5)
+      .attr('stroke-opacity', theme === 'dark' ? 0.7 : 0.5);
 
     nodeGroup.append('text')
       .text((d: GraphNode) => {
@@ -134,11 +135,12 @@ export default function MemoryGraph({ nodes, edges, retrievalPath, theme, onNode
         }
         return label;
       })
-      .attr('x', 10)
-      .attr('y', 3)
-      .attr('fill', theme === 'dark' ? '#c0c0c0' : '#495057')
-      .attr('font-size', '10px')
-      .attr('font-family', 'sans-serif');
+      .attr('x', 14)
+      .attr('y', 4)
+      .attr('fill', theme === 'dark' ? '#d0d0d0' : '#374151')
+      .attr('font-size', '11px')
+      .attr('font-family', 'sans-serif')
+      .attr('font-weight', '500');
 
     const pathGroup = g.append('g').attr('class', 'retrieval-path-group');
     pathGroupRef.current = { g: pathGroup, nodes, simulation, theme };

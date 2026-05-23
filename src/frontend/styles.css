@@ -1,7 +1,7 @@
 :root {
   --bg-primary: #111;
   --bg-secondary: #1a1a1a;
-  --bg-tertiary: #1e1e1e;
+  --bg-tertiary: #1e2028;
   --bg-hover: rgba(255, 255, 255, 0.05);
   --bg-active: rgba(0, 122, 255, 0.1);
   --text-primary: #ddd;
@@ -19,7 +19,7 @@
 body.theme-light {
   --bg-primary: #f5f5f5;
   --bg-secondary: #ffffff;
-  --bg-tertiary: #e8e8e8;
+  --bg-tertiary: #eef0f2;
   --bg-hover: rgba(0, 0, 0, 0.04);
   --bg-active: rgba(0, 122, 255, 0.08);
   --text-primary: #1a1a1a;
@@ -708,6 +708,7 @@ body {
   flex-direction: column;
   min-width: 0;
   border-right: 1px solid var(--border-color);
+  border-top: 3px solid #4B8BBE;
   overflow: hidden;
   background: var(--bg-secondary);
 }
@@ -776,6 +777,88 @@ body {
   border-color: rgba(239, 68, 68, 0.3);
   color: #ef4444;
 }
+
+/* ===================== Chat Markdown 渲染样式 ===================== */
+.chat-message-bubble h1 { font-size: 1.2rem; font-weight: 600; margin: 0.5em 0 0.3em; }
+.chat-message-bubble h2 { font-size: 1.1rem; font-weight: 600; margin: 0.5em 0 0.3em; }
+.chat-message-bubble h3 { font-size: 1rem; font-weight: 600; margin: 0.4em 0 0.2em; }
+.chat-message-bubble p { margin: 0.3em 0; }
+.chat-message-bubble ul, .chat-message-bubble ol { margin: 0.3em 0; padding-left: 1.5em; }
+.chat-message-bubble li { margin: 0.15em 0; }
+.chat-message-bubble code {
+  background: rgba(127, 127, 127, 0.15);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.82rem;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+.chat-message-bubble pre {
+  background: rgba(0, 0, 0, 0.08);
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.4em 0;
+  font-size: 0.8rem;
+}
+.chat-message-bubble pre code {
+  background: none;
+  padding: 0;
+}
+.chat-message-bubble blockquote {
+  border-left: 3px solid var(--accent-primary);
+  margin: 0.3em 0;
+  padding: 0.2em 0.8em;
+  opacity: 0.85;
+}
+.chat-message-bubble table {
+  border-collapse: collapse;
+  margin: 0.3em 0;
+  font-size: 0.82rem;
+}
+.chat-message-bubble th, .chat-message-bubble td {
+  border: 1px solid var(--border-color);
+  padding: 4px 8px;
+  text-align: left;
+}
+.chat-message-bubble th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+}
+.chat-message-bubble a {
+  color: var(--accent-primary);
+  text-decoration: underline;
+}
+.chat-message-bubble hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 0.5em 0;
+}
+.chat-message-bubble strong { font-weight: 600; }
+
+/* Thinking block Markdown */
+.thinking-step-content h1 { font-size: 1rem; font-weight: 600; margin: 0.3em 0 0.2em; }
+.thinking-step-content h2 { font-size: 0.95rem; font-weight: 600; margin: 0.3em 0 0.2em; }
+.thinking-step-content h3 { font-size: 0.9rem; font-weight: 600; margin: 0.2em 0 0.1em; }
+.thinking-step-content p { margin: 0.2em 0; }
+.thinking-step-content ul, .thinking-step-content ol { margin: 0.2em 0; padding-left: 1.5em; }
+.thinking-step-content code {
+  background: rgba(127, 127, 127, 0.12);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.78rem;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+.thinking-step-content pre {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 6px 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 0.2em 0;
+  font-size: 0.76rem;
+}
+.thinking-step-content pre code { background: none; padding: 0; }
+.thinking-step-content a { color: var(--accent-primary); }
+.thinking-step-content strong { font-weight: 600; }
 
 .thinking-block {
   margin: 2px 0;
@@ -1152,6 +1235,7 @@ body {
   background: var(--bg-primary);
   position: relative;
   border-right: none;
+  border-top: 3px solid #4CAF50;
 }
 
 .canvas-memory-resize-handle {
@@ -1173,8 +1257,9 @@ body {
   flex-direction: column;
   min-width: 150px;
   overflow: hidden;
-  background: var(--bg-secondary);
+  background: var(--bg-tertiary);
   border-left: 1px solid var(--border-color);
+  border-top: 3px solid #8B5CF6;
 }
 
 .memory-graph-panel .memory-graph-wrapper {
@@ -1282,6 +1367,17 @@ body {
   height: 100vh;
   z-index: 500;
   background: var(--bg-primary);
+}
+
+/* ReactFlow 框选样式 */
+.react-flow__selection {
+  background: rgba(0, 122, 255, 0.08) !important;
+  border: 1.5px dashed rgba(0, 122, 255, 0.6) !important;
+}
+
+.react-flow__nodesselection-rect {
+  background: transparent !important;
+  border: none !important;
 }
 
 .rf-fullscreen-btn {

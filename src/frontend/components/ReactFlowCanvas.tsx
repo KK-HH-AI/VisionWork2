@@ -5,6 +5,7 @@ import ReactFlow, {
   applyEdgeChanges,
   Background,
   Controls,
+  SelectionMode,
   MarkerType,
   Handle,
   Position,
@@ -714,6 +715,10 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
         fitViewOptions={{ padding: 0.3 }}
         minZoom={0.1}
         maxZoom={4}
+        selectionOnDrag
+        panOnDrag={[1]}
+        selectionMode={SelectionMode.Partial}
+        selectNodesOnDrag={true}
         defaultEdgeOptions={{
           type: 'smoothstep',
           animated: false,

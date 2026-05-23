@@ -3,14 +3,13 @@ import os
 import hashlib
 from pathlib import Path
 from .base import BaseTool
-from ..core.prompts import ANALYSIS_PROMPT
+from ..core.prompts import GENERAL_ANALYSIS_PROMPT
 from ..utils.graph_utils import generate_node_id, get_file_group
-from ..memory.vector_store import get_vector_store
 
 
 class AnalyzeModuleTool(BaseTool):
     name = "analyze_module"
-    description = "接收一个文件路径和内容，调用LLM分析该模块，生成Markdown笔记保存到记忆目录，返回笔记路径和关键摘要。同时在画布上创建模块节点。"
+    description = "接收一个文件路径和内容，调用LLM分析该文件（代码/文档/配置/数据等），生成Markdown笔记保存到记忆目录，返回笔记路径和关键摘要。同时在画布上创建模块节点。"
     parameters_schema = {
         "type": "object",
         "properties": {
@@ -38,10 +37,6 @@ class AnalyzeModuleTool(BaseTool):
                 "type": "string",
                 "description": "LLM模型名称",
             },
-            "profession": {
-                "type": "string",
-                "description": "分析者职业视角",
-            },
             "memory_dir": {
                 "type": "string",
                 "description": "记忆目录路径",
@@ -60,8 +55,7 @@ class AnalyzeModuleTool(BaseTool):
         filename = kwargs.get("filename", os.path.basename(filepath) if filepath else "")
         api_url = kwargs.get("api_url", "")
         api_key = kwargs.get("api_key", "")
-        model_name = kwargs.get("model_name", "gpt-3.5-turbo")
-        profession = kwargs.get("profession", "Software Engineer")
+        model_name = kwargs.get("model_name", "qwen-plus")
         memory_dir = kwargs.get("memory_dir", "")
         project_path = kwargs.get("project_path", "")
 
@@ -83,11 +77,10 @@ class AnalyzeModuleTool(BaseTool):
                 max_tokens=2000,
             )
 
-            prompt = ANALYSIS_PROMPT.format(
-                profession=profession,
+            prompt = GENERAL_ANALYSIS_PROMPT.format(
                 filename=filename,
                 filepath=filepath,
-                code_content=code_content[:8000],
+                content=code_content[:8000],
             )
 
             response = llm.invoke(prompt)
@@ -102,19 +95,6 @@ class AnalyzeModuleTool(BaseTool):
             note_path = os.path.join(memory_dir, note_filename)
             with open(note_path, 'w', encoding='utf-8') as f:
                 f.write(note_content)
-
-            try:
-                vector_store = get_vector_store(memory_dir)
-                vector_store.add_notes([{
-                    "id": node_id,
-                    "content": note_content,
-                    "filepath": filepath,
-                    "filename": filename,
-                    "note_path": note_path,
-                    "node_id": node_id,
-                }])
-            except Exception:
-                pass
 
         summary = note_content[:300] if len(note_content) > 300 else note_content
 

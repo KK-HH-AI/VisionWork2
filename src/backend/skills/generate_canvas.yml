@@ -1,0 +1,11 @@
+name: generate_canvas
+description: 在所有文件分析完成后，基于收集到的分析笔记，一次性批量生成完整的流程图（节点+边+布局）。效率远高于逐个创建节点。
+parameters:
+  notes_summary:
+    type: string
+    description: 所有已分析文件的笔记摘要，包含各文件的关键信息和实体
+    required: true
+  user_intent:
+    type: string
+    description: 用户的原始意图/指令，决定流程图的结构和重点
+    required: true
