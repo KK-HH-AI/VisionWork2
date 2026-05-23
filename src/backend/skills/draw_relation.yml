@@ -1,15 +1,55 @@
 name: draw_relation
-description: 根据分析结果，在画布上添加模块之间的关联边（调用、依赖、数据流等关系）。
+description: 在画布上操作流程图。支持添加节点（含富内容Markdown、图片、自定义颜色）、添加关联边、修改节点/边属性、删除节点/边。
 parameters:
-  source_id:
+  operation:
     type: string
-    description: 源节点ID
-    required: true
-  target_id:
+    description: 操作类型。默认为 add_edge。
+    enum: [add_node, add_edge, update_node, update_edge, remove_node, remove_edge]
+  node_id:
     type: string
-    description: 目标节点ID
-    required: true
+    description: 节点ID（add_node、update_node、remove_node 时必填）
   label:
     type: string
-    description: 关系描述（中文），如"调用"、"依赖"、"数据流"
-    required: true
+    description: 节点标签或边的关系描述
+  node_type:
+    type: string
+    description: 节点类型，如 module、function、class、data、service
+  group:
+    type: string
+    description: 节点分组，如 backend、frontend、utils
+  source_id:
+    type: string
+    description: 源节点ID（add_edge、remove_edge 时必填，也可用 source 参数）
+  target_id:
+    type: string
+    description: 目标节点ID（add_edge、remove_edge 时必填，也可用 target 参数）
+  rich_content:
+    type: string
+    description: 节点内的富内容Markdown，支持表格、列表、代码等
+  image_url:
+    type: string
+    description: 节点内显示的图片URL
+  background_color:
+    type: string
+    description: 节点背景颜色，如 #1a1a2e
+  border_color:
+    type: string
+    description: 节点边框颜色，如 #4B8BBE
+  edge_color:
+    type: string
+    description: 边的颜色，如 #e94560
+  edge_id:
+    type: string
+    description: 边的ID（update_edge 时必填，格式为 e-{source}-{target}）
+  new_label:
+    type: string
+    description: 节点的新标签（update_node 时使用）
+  new_type:
+    type: string
+    description: 节点的新类型（update_node 时使用）
+  new_group:
+    type: string
+    description: 节点的新分组（update_node 时使用）
+  description:
+    type: string
+    description: 节点描述文本（add_node 时使用）

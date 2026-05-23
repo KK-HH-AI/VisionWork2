@@ -1,5 +1,5 @@
 name: analyze_module
-description: 接收一个文件路径和内容，调用LLM分析该模块，生成Markdown笔记保存到记忆目录，返回笔记路径和关键摘要。同时在画布上创建模块节点。
+description: 接收一个文件路径和内容，调用LLM分析该文件（代码/文档/配置/数据等），生成Markdown笔记保存到记忆目录，返回笔记路径和关键摘要。同时在画布上创建模块节点。
 parameters:
   filepath:
     type: string

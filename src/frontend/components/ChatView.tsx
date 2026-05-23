@@ -1,11 +1,19 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, FolderPlus, X, Folder } from 'react-feather';
+import { Send, FolderPlus, X, Folder, Settings, Square, ChevronDown, ChevronRight } from 'react-feather';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  subtype?: 'thinking' | 'response' | 'error';
+}
+
+interface ThinkingBlock {
+  messages: ChatMessage[];
+  startIndex: number;
 }
 
 interface ChatViewProps {
@@ -16,6 +24,31 @@ interface ChatViewProps {
   scanTag?: string | null;
   onClearScanTag?: () => void;
   onViewFileTree?: () => void;
+  onOpenSkillManager?: () => void;
+  isProcessing?: boolean;
+  onStop?: () => void;
+  agentRunning?: boolean;
+  agentCompleted?: boolean;
+}
+
+function buildThinkingBlocks(messages: ChatMessage[]): (ChatMessage | ThinkingBlock)[] {
+  const result: (ChatMessage | ThinkingBlock)[] = [];
+  let i = 0;
+  while (i < messages.length) {
+    const msg = messages[i];
+    if (msg.subtype === 'thinking') {
+      const block: ThinkingBlock = { messages: [], startIndex: i };
+      while (i < messages.length && messages[i].subtype === 'thinking') {
+        block.messages.push(messages[i]);
+        i++;
+      }
+      result.push(block);
+    } else {
+      result.push(msg);
+      i++;
+    }
+  }
+  return result;
 }
 
 export default function ChatView({
@@ -26,8 +59,14 @@ export default function ChatView({
   scanTag,
   onClearScanTag,
   onViewFileTree,
+  onOpenSkillManager,
+  isProcessing,
+  onStop,
+  agentRunning,
+  agentCompleted,
 }: ChatViewProps) {
   const [input, setInput] = useState('');
+  const [expandedBlocks, setExpandedBlocks] = useState<Set<number>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -37,16 +76,22 @@ export default function ChatView({
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed || !connected) return;
+    if (!trimmed || !connected || isProcessing) return;
 
-    sendMessage({
+    const msg: Record<string, unknown> = {
       type: 'chat_message',
       content: trimmed,
-    });
+    };
+
+    if (scanTag) {
+      msg.path = scanTag;
+    }
+
+    sendMessage(msg);
 
     setInput('');
     inputRef.current?.focus();
-  }, [input, connected, sendMessage]);
+  }, [input, connected, isProcessing, sendMessage, scanTag]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -64,6 +109,20 @@ export default function ChatView({
     }
   }, [onSelectFolder]);
 
+  const toggleBlock = useCallback((blockIndex: number) => {
+    setExpandedBlocks((prev) => {
+      const next = new Set(prev);
+      if (next.has(blockIndex)) {
+        next.delete(blockIndex);
+      } else {
+        next.add(blockIndex);
+      }
+      return next;
+    });
+  }, []);
+
+  const displayItems = buildThinkingBlocks(messages);
+
   return (
     <div className="chat-view">
       <div className="chat-messages">
@@ -72,11 +131,66 @@ export default function ChatView({
             <p>开始对话，探索你的代码库</p>
           </div>
         ) : (
-          messages.map((msg) => (
-            <div key={msg.id} className={`chat-message ${msg.role}`}>
-              <div className="chat-message-bubble">{msg.content}</div>
-            </div>
-          ))
+          displayItems.map((item, idx) => {
+            if ('messages' in item) {
+              const block = item as ThinkingBlock;
+              const isExpanded = expandedBlocks.has(idx);
+              const lastMsg = block.messages[block.messages.length - 1];
+              const preview = lastMsg ? lastMsg.content.substring(0, 80) : 'Thinking...';
+
+              return (
+                <div key={`block-${idx}`} className="thinking-block">
+                  <div
+                    className="thinking-block-header"
+                    onClick={() => toggleBlock(idx)}
+                  >
+                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    <span className="thinking-block-label">Thought</span>
+                    <span className="thinking-block-preview">
+                      {preview}{preview.length >= 80 ? '...' : ''}
+                    </span>
+                    <span className="thinking-block-count">{block.messages.length} steps</span>
+                  </div>
+                  {isExpanded && (
+                    <div className="thinking-block-body">
+                      {block.messages.map((msg) => (
+                        <div key={msg.id} className="thinking-step">
+                          <div className="thinking-step-content">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            const msg = item as ChatMessage;
+            return (
+              <div key={msg.id} className={`chat-message ${msg.role}${msg.subtype === 'error' ? ' error' : ''}`}>
+                <div className="chat-message-bubble">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+              </div>
+              </div>
+            );
+          })
+        )}
+        {isProcessing && (
+          <div className="typing-indicator">
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+          </div>
+        )}
+        {agentCompleted && (
+          <div className="completion-indicator">
+            <svg className="completion-checkmark" viewBox="0 0 52 52" width="28" height="28">
+              <circle className="completion-circle" cx="26" cy="26" r="24" fill="none" stroke="#34c759" strokeWidth="3" />
+              <path className="completion-check" fill="none" stroke="#34c759" strokeWidth="3" d="M14 27l7 7 16-16" />
+            </svg>
+            <span className="completion-text">完成</span>
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -102,7 +216,7 @@ export default function ChatView({
         <button
           className="btn-folder-select"
           onClick={handleSelectFolder}
-          disabled={!connected}
+          disabled={!connected || isProcessing}
           title="选择文件夹"
         >
           <FolderPlus size={18} />
@@ -117,14 +231,33 @@ export default function ChatView({
           rows={1}
           disabled={!connected}
         />
-        <button
-          className="btn-send"
-          onClick={handleSend}
-          disabled={!connected || !input.trim()}
-          title="发送"
-        >
-          <Send size={16} />
-        </button>
+        {isProcessing ? (
+          <button
+            className="btn-stop"
+            onClick={onStop}
+            title="停止"
+          >
+            <Square size={14} />
+          </button>
+        ) : (
+          <button
+            className="btn-send"
+            onClick={handleSend}
+            disabled={!connected || !input.trim()}
+            title="发送"
+          >
+            <Send size={16} />
+          </button>
+        )}
+        {onOpenSkillManager && (
+          <button
+            className="btn-settings"
+            onClick={onOpenSkillManager}
+            title="Skill 管理"
+          >
+            <Settings size={16} />
+          </button>
+        )}
       </div>
     </div>
   );

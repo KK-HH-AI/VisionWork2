@@ -44,6 +44,10 @@ export interface CanvasNodeData {
   group?: string;
   description?: string;
   codeRef?: CodeFileRef[] | null;
+  richContent?: string;
+  imageUrl?: string;
+  backgroundColor?: string;
+  borderColor?: string;
 }
 
 export interface CanvasNode {
@@ -73,15 +77,20 @@ export interface SessionCanvasState {
 }
 
 export interface CanvasCommand {
-  cmd: 'add_node' | 'add_edge' | 'layout';
+  cmd: 'add_node' | 'add_edge' | 'layout' | 'update_node' | 'remove_node' | 'remove_edge' | 'update_edge';
   id?: string;
   label?: string;
   type?: string;
   group?: string;
   description?: string;
   codeRef?: CodeFileRef[] | null;
+  richContent?: string;
+  imageUrl?: string;
+  backgroundColor?: string;
+  borderColor?: string;
   source?: string;
   target?: string;
+  edgeColor?: string;
 }
 
 export interface AgentPlanStep {
@@ -116,6 +125,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  subtype?: 'thinking' | 'response' | 'error';
 }
 
 export interface SessionData {
@@ -140,6 +150,7 @@ export interface MessageHandlers {
   onError?: (msg: string | WSMessage) => void;
   onChatResponse?: (msg: WSMessage) => void;
   onThought?: (msg: WSMessage) => void;
+  onThoughtChunk?: (msg: WSMessage) => void;
   onPlan?: (msg: WSMessage) => void;
   onToolCall?: (msg: WSMessage) => void;
   onToolResult?: (msg: WSMessage) => void;

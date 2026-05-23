@@ -1,10 +1,67 @@
 import os
+import re
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from ..services.scanner import build_dir_tree
 from ..core.config import WORKSPACE_ROOT
 
 router = APIRouter()
+
+
+class SaveMemoryFileRequest(BaseModel):
+    filepath: str
+    content: str
+
+
+def _extract_node_id_from_filename(filename: str) -> str:
+    stem = os.path.splitext(filename)[0]
+    parts = stem.rsplit('_', 1)
+    if len(parts) == 2 and re.match(r'^[0-9a-f]{12}$', parts[1]):
+        return parts[1]
+    return stem
+
+
+def _get_group_from_path(filepath: str, workspace_root: str) -> str:
+    rel = os.path.relpath(filepath, workspace_root)
+    parts = rel.replace('\\', '/').split('/')
+    if len(parts) >= 2:
+        return parts[0]
+    return 'other'
+
+
+@router.get("/get-memory-graph-nodes")
+async def get_memory_graph_nodes():
+    try:
+        workspace_dir = WORKSPACE_ROOT
+        nodes = []
+        seen_ids = set()
+
+        if not os.path.exists(workspace_dir):
+            return JSONResponse({"success": True, "nodes": []})
+
+        for root, dirs, files in os.walk(workspace_dir):
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__' and d != 'node_modules']
+            for filename in files:
+                if not filename.endswith('.md'):
+                    continue
+                filepath = os.path.join(root, filename)
+                node_id = _extract_node_id_from_filename(filename)
+                if node_id in seen_ids:
+                    continue
+                seen_ids.add(node_id)
+                group = _get_group_from_path(filepath, workspace_dir)
+                label = os.path.splitext(filename)[0]
+                nodes.append({
+                    "id": node_id,
+                    "label": label,
+                    "group": group,
+                    "path": filepath,
+                })
+
+        return JSONResponse({"success": True, "nodes": nodes})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/list-memory-dir")
@@ -55,5 +112,34 @@ async def get_workspace_tree():
             return JSONResponse({"success": True, "workspace_dir": workspace_dir, "tree": []})
         tree = build_dir_tree(workspace_dir)
         return JSONResponse({"success": True, "workspace_dir": workspace_dir, "tree": tree})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/read-memory-file")
+async def read_memory_file(filepath: str = Query(...)):
+    try:
+        if not os.path.exists(filepath):
+            return JSONResponse({"success": False, "error": "File not found", "content": ""})
+        if not filepath.endswith('.md'):
+            return JSONResponse({"success": False, "error": "Only .md files can be read", "content": ""})
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return JSONResponse({"success": True, "filepath": filepath, "content": content})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/save-memory-file")
+async def save_memory_file(request: SaveMemoryFileRequest):
+    try:
+        filepath = request.filepath
+        content = request.content
+        if not filepath:
+            return JSONResponse({"success": False, "error": "filepath is required"})
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return JSONResponse({"success": True, "filepath": filepath})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

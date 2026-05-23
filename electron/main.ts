@@ -10,6 +10,7 @@ let pythonProcess: ChildProcess | null;
 let backendPort: number;
 let backendToken: string;
 let isBackendReady = false;//代表后端是否启动成功的标志
+let viteProcess : ChildProcess | null;
 
 /**
  * 查找当前可用的端口号
@@ -38,16 +39,16 @@ function findAvailablePort(): Promise<number> {
  * 根据端口和令牌启动 main.py 子进程，监听 stdout 判断启动完成
  * @param port - 后端监听端口
  * @param token - 认证令牌
- * @returns 启动成功时 resolve，进程出错或超时则 reject
+ * @returns 启动成功时 resolve，进程出错或超时则 reject，返回一个promise
  */
 function startPythonBackend(port: number, token: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    //获得python的环境变量
+    //获得python可执行文件路径
     const pythonPath = process.env.PYTHON_PATH || 'python';
-    //拼接后端主程序的文件路径
+    //找到后端主程序的文件路径
     const scriptPath = path.join(__dirname, '..', 'src', 'backend', 'main.py');
 
-    //启动python后端进程，并设置python环境变量
+    //启动python后端主程序
     pythonProcess = spawn(pythonPath, [scriptPath, '--port', String(port), '--token', token], {
       stdio: ['pipe', 'pipe', 'pipe'],
       //PYTHONIOENCODING 是 Python 专用的一个环境变量，用来控制 Python 解释器输入输出（stdin/stdout/stderr）的编码。
@@ -56,7 +57,7 @@ function startPythonBackend(port: number, token: string): Promise<void> {
 
     let backendOutput = '';
 
-    //后端正常输出
+    //监听后端输出，判度是否启动成功（成功时执行）
     pythonProcess.stdout?.on('data', (data: Buffer) => {
       const str = data.toString();
       backendOutput += str;
@@ -67,11 +68,15 @@ function startPythonBackend(port: number, token: string): Promise<void> {
       }
     });
 
-    //监听后端标准错误输出流（可读流）
+    //监听到错误或者超时
     pythonProcess.stderr?.on('data', (data: Buffer) => {
       const str = data.toString();
       backendOutput += str;
       console.error(`[Backend Error] ${str.trim()}`);
+      if (str.includes('Backend starting') || str.includes('Uvicorn running')) {
+        isBackendReady = true;
+        resolve();
+      }
     });
 
     //无法创建python子进程时
@@ -102,46 +107,100 @@ function startPythonBackend(port: number, token: string): Promise<void> {
 }
 
 /**
+ * 开启前端vite服务
+ * @returns 前端端口号
+ */
+async function startViteDevServer(): Promise<number> {
+  //找一个空闲端口号
+  const vitePort = await findAvailablePort();
+
+  //获得前端主程序路径
+  return new Promise((resolve, reject) => {
+    const frontendDir = path.join(__dirname, '..', 'src', 'frontend');
+    //启动前端主程序
+    viteProcess = spawn(
+      process.platform === 'win32' ? 'npx.cmd' : 'npx',
+      ['vite', '--port', String(vitePort), '--strictPort'],
+      {
+        cwd: frontendDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: true,
+        env: { ...process.env, NO_COLOR: '1' },
+      }
+    );
+
+    viteProcess.stdout?.on('data', (data: Buffer) => {
+      console.log(`[Vite] ${data.toString().trim()}`);
+    });
+
+    viteProcess.stderr?.on('data', (data: Buffer) => {
+      console.error(`[Vite Error] ${data.toString().trim()}`);
+    });
+
+    viteProcess.on('error', (err: Error) => {
+      console.error(`[Vite] Failed to start: ${err.message}`);
+      reject(err);
+    });
+
+    viteProcess.on('exit', (code: number | null) => {
+      console.log(`[Vite] Process exited with code ${code}`);
+    });
+
+    const checkInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`http://localhost:${vitePort}`);
+        if (res.ok || res.status === 200 || res.status === 304) {
+          clearInterval(checkInterval);
+          clearTimeout(timeout);
+          console.log(`[Main] Vite is ready on port ${vitePort}`);
+          resolve(vitePort);
+        }
+      } catch {
+        // 继续等待
+      }
+    }, 500);
+
+    const timeout = setTimeout(() => {
+      clearInterval(checkInterval);
+      reject(new Error('Vite startup timeout'));
+    }, 30000);
+  });
+}
+
+/**
  * 启动electron项目
  * @returns 启动成功时 resolve，进程出错或超时则 reject
  */
 async function createWindow() {
   try {
-    //系统为后端进程随机分配一个空闲端口
+    console.log('[Main] Starting Vite dev server...');
+    //启动前端
+    const vitePort = await startViteDevServer();
+    console.log(`[Main] Vite is ready on port ${vitePort}`);
+
+    //启动后端
     backendPort = await findAvailablePort();
-    //用 crypto.randomBytes(16) 生成 16 字节的随机数据，再转为十六进制字符串（32 个字符），作为
-    //作为后端 API 的简单认证令牌
     backendToken = crypto.randomBytes(16).toString('hex');
     console.log(`[Main] Starting backend on port ${backendPort}...`);
-
-    //启动后端子进程
     await startPythonBackend(backendPort, backendToken);
     isBackendReady = true;
     console.log('[Main] Backend is ready');
-
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    //创建主窗口
+    //创建electron窗口
     mainWindow = new BrowserWindow({
       width: 1400,
       height: 900,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        preload: path.join(__dirname, 'preload.js')
+        preload: path.join(__dirname, 'preload.js'),
+        devTools: false,  // 禁用开发者工具
       }
     });
 
-    const isDev = true;
-
-    //打开前端渲染进程
-    if (isDev || process.env.NODE_ENV === 'development' || process.env.VITE_DEV_SERVER_URL) {
-      mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173');
-      //同时开启开发者工具
-      mainWindow.webContents.openDevTools();
-    } else {
-      mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
-    }
+    // 使用动态获取的 Vite 端口，加载前端界面
+    mainWindow.loadURL(`http://localhost:${vitePort}`);
 
     mainWindow.on('closed', () => {
       mainWindow = null;
@@ -157,37 +216,52 @@ async function createWindow() {
  * 优雅关闭 Python 后端进程
  * 先发送 SIGTERM，3 秒内未退出则强杀，最后清理状态
  */
-async function shutdownBackend() {
-  if (!pythonProcess) {
-    return;
-  }
+async function shutdownAll() {
+  // ====================== 1. 关闭 Python 后端 ======================
+  if (pythonProcess) {
+    console.log('[Main] Shutting down backend...');
 
-  console.log('[Main] Shutting down backend...');
+    if (pythonProcess.exitCode === null) {
+      pythonProcess.kill('SIGTERM');
 
-  if (pythonProcess.exitCode === null) {
-    if (process.platform === 'win32') {
-      pythonProcess.kill('SIGTERM');
-    } else {
-      pythonProcess.kill('SIGTERM');
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => {
+          console.log('[Main] Backend did not exit gracefully, force killing...');
+          pythonProcess!.kill('SIGKILL');
+          resolve();
+        }, 3000);
+
+        pythonProcess!.on('exit', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
     }
 
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        console.log('[Main] Backend did not exit gracefully, force killing...');
-        pythonProcess!.kill('SIGKILL');
-        resolve();
-      }, 3000);
-
-      pythonProcess!.on('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-    });
+    pythonProcess = null;
+    isBackendReady = false;
+    console.log('[Main] Backend shutdown complete');
   }
 
-  pythonProcess = null;
-  isBackendReady = false;
-  console.log('[Main] Backend shutdown complete');
+  // ====================== 2. 关闭 Vite 前端服务 ======================
+  if (viteProcess) {
+    console.log('[Main] Shutting down Vite...');
+    if (viteProcess.exitCode === null) {
+      viteProcess.kill('SIGTERM');
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => {
+          viteProcess!.kill('SIGKILL');
+          resolve();
+        }, 3000);
+        viteProcess!.on('exit', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+    }
+    viteProcess = null;
+    console.log('[Main] Vite shutdown complete');
+  }
 }
 
 //以下为Electron的主入口程序（调用层）
@@ -196,7 +270,7 @@ app.whenReady().then(createWindow);
 
 //注册一个处理器，在所有窗口都关闭时触发，关闭后端进程
 app.on('window-all-closed', async () => {
-  await shutdownBackend();
+  await shutdownAll();
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -206,7 +280,7 @@ app.on('window-all-closed', async () => {
 app.on('before-quit', async (event) => {
   if (pythonProcess && pythonProcess.exitCode === null) {
     event.preventDefault();
-    await shutdownBackend();
+    await shutdownAll();
     app.quit();
   }
 });
@@ -224,8 +298,9 @@ ipcMain.handle('get-backend-config', () => {
   return { port: backendPort, token: backendToken, ready: isBackendReady };
 });
 
-//注册一个 IPC 接口，前端请求选择文件夹时才弹出系统对话
+//注册一个 IPC 接口，前端请求选择文件夹时才弹出系统对话，输出文件夹绝对路径
 ipcMain.handle('select-folder', async () => {
+  //弹出系统文件夹选择框
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openDirectory']
   });
@@ -236,7 +311,7 @@ ipcMain.handle('select-folder', async () => {
   return null;
 });
 
-//注册一个 IPC 接口，前端请求读取文件时才执行，返回文件内容
+//注册一个 IPC 接口，前端请求读取文件时才执行，输出文件内容
 ipcMain.handle('read-file', async (_event, filePath: string) => {
   try {
     if (!fs.existsSync(filePath)) {
