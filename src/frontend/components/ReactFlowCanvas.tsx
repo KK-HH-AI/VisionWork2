@@ -4,6 +4,7 @@ import ReactFlow, {
   applyNodeChanges,
   applyEdgeChanges,
   Background,
+  BackgroundVariant,
   Controls,
   SelectionMode,
   MarkerType,
@@ -73,6 +74,8 @@ function getLayoutedElements(nodes: CanvasNode[], edges: CanvasEdge[], direction
       },
       style: {
         ...node.style,
+        width: w,
+        height: h,
         opacity: 1,
         transition: 'opacity 0.2s ease-in',
       },
@@ -83,49 +86,53 @@ function getLayoutedElements(nodes: CanvasNode[], edges: CanvasEdge[], direction
 }
 
 /* ========== CustomNode with rich content support ========== */
-function CustomNode({ data, selected }: { data: CanvasNodeData; selected?: boolean }) {
+function CustomNode({ id, data, selected }: { id: string; data: CanvasNodeData; selected?: boolean }) {
   const borderColor = data.borderColor || NODE_TYPE_COLORS[data.nodeType || ''] || GROUP_COLORS[data.group || ''] || GROUP_COLORS['other'];
   const bgColor = data.backgroundColor || undefined;
   const headerColor = data.borderColor || borderColor;
   const hasRichContent = !!(data.richContent || data.imageUrl);
 
   return (
-    <div
-      className={`rf-custom-node ${hasRichContent ? 'rf-custom-node-rich' : ''}`}
-      style={{
-        borderColor,
-        backgroundColor: bgColor,
-        minWidth: hasRichContent ? 260 : 160,
-      }}
-    >
+    <>
       <NodeResizer
-        minWidth={120}
-        minHeight={60}
+        nodeId={id}
+        minWidth={hasRichContent ? 200 : 120}
+        minHeight={50}
         isVisible={selected}
         lineStyle={{ borderColor: 'rgba(255,255,255,0.4)' }}
         handleStyle={{ width: 8, height: 8, backgroundColor: '#4B8BBE', border: '1px solid #fff' }}
       />
-      <Handle type="target" position={Position.Top} className="rf-handle" />
-      <div className="rf-node-header" style={{ backgroundColor: headerColor }}>
-        <span className="rf-node-type">{data.nodeType || data.group || 'module'}</span>
+      <div
+        className={`rf-custom-node ${hasRichContent ? 'rf-custom-node-rich' : ''}`}
+        style={{
+          borderColor,
+          backgroundColor: bgColor,
+          width: '100%',
+          height: '100%',
+        }}
+      >
+        <Handle type="target" position={Position.Top} className="rf-handle" />
+        <div className="rf-node-header" style={{ backgroundColor: headerColor }}>
+          <span className="rf-node-type">{data.nodeType || data.group || 'module'}</span>
+        </div>
+        <div className="rf-node-body">
+          <span className="rf-node-label">{data.label}</span>
+          {data.imageUrl && (
+            <div className="rf-node-image-wrap">
+              <img src={data.imageUrl} alt={data.label} className="rf-node-image" />
+            </div>
+          )}
+          {data.richContent && (
+            <div className="rf-node-rich-content">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {data.richContent.length > 500 ? data.richContent.substring(0, 500) + '...' : data.richContent}
+              </ReactMarkdown>
+            </div>
+          )}
+        </div>
+        <Handle type="source" position={Position.Bottom} className="rf-handle" />
       </div>
-      <div className="rf-node-body">
-        <span className="rf-node-label">{data.label}</span>
-        {data.imageUrl && (
-          <div className="rf-node-image-wrap">
-            <img src={data.imageUrl} alt={data.label} className="rf-node-image" />
-          </div>
-        )}
-        {data.richContent && (
-          <div className="rf-node-rich-content">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {data.richContent.length > 500 ? data.richContent.substring(0, 500) + '...' : data.richContent}
-            </ReactMarkdown>
-          </div>
-        )}
-      </div>
-      <Handle type="source" position={Position.Bottom} className="rf-handle" />
-    </div>
+    </>
   );
 }
 
@@ -233,6 +240,8 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
             borderColor: command.borderColor || '',
           },
           style: {
+            width: (command.richContent || command.imageUrl) ? 280 : 180,
+            height: (command.richContent || command.imageUrl) ? 180 : 60,
             opacity: 0,
             transition: 'opacity 0.2s ease-in',
           },
@@ -283,10 +292,15 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
         if (exists) {
           return eds.map(e => {
             if (e.source === command.source && e.target === command.target) {
+              const newStroke = command.edgeColor || (e.style as React.CSSProperties)?.stroke;
               return {
                 ...e,
                 label: command.label || e.label,
-                style: { ...((e.style || {}) as React.CSSProperties), stroke: command.edgeColor || (e.style as React.CSSProperties)?.stroke },
+                style: { ...((e.style || {}) as React.CSSProperties), stroke: newStroke },
+                markerEnd: {
+                  ...((e.markerEnd as EdgeMarker) || { type: MarkerType.ArrowClosed }),
+                  color: newStroke || (e.markerEnd as EdgeMarker)?.color || edgeMarkerColor,
+                } as EdgeMarker,
               };
             }
             return e;
@@ -536,6 +550,7 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
         nodeType: 'module',
         group: 'other',
       },
+      style: { width: 180, height: 60 },
     };
     setNodes((nds) => [...nds, newNode]);
   }, []);
@@ -726,7 +741,7 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
         }}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color={theme === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} gap={20} />
+        <Background variant={BackgroundVariant.Dots} color={theme === 'dark' ? '#888' : '#aaa'} gap={16} size={2} />
         <Controls className="rf-controls" />
       </ReactFlow>
 

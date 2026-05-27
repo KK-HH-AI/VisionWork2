@@ -33,11 +33,15 @@ class CanvasReadTool(BaseTool):
         lines.append("\n### 边关系")
         if edges:
             for edge in edges:
+                edge_id = edge.get("id", "")
                 source = edge.get("source", "?")
                 target = edge.get("target", "?")
                 label = edge.get("label", "")
+                style = edge.get("style", {}) or {}
+                stroke_color = style.get("stroke", "")
                 label_str = f": {label}" if label else ""
-                lines.append(f"- `{source}` → `{target}`{label_str}")
+                color_str = f" (颜色: {stroke_color})" if stroke_color else ""
+                lines.append(f"- `{edge_id}`: `{source}` → `{target}`{label_str}{color_str}")
         else:
             lines.append("(空)")
 
