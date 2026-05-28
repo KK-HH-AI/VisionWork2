@@ -203,6 +203,42 @@ class GenerateCommunitySummariesTool(BaseTool):
             with open(communities_path, "w", encoding="utf-8") as f:
                 json.dump(communities_data, f, ensure_ascii=False, indent=2)
 
+            try:
+                from .memory_vector_store import init_vector_store, add_community_summaries
+                storage_path = os.path.join(workspace_root, project_name)
+                collection = init_vector_store(storage_path)
+
+                generated_summaries = []
+                for filename in os.listdir(communities_dir):
+                    if not filename.startswith("community_") or not filename.endswith(".md"):
+                        continue
+                    summary_path = os.path.join(communities_dir, filename)
+                    try:
+                        with open(summary_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                    except Exception:
+                        continue
+
+                    stem = filename[len("community_"):-len(".md")]
+                    parts = stem.split("_", 1)
+                    level = parts[0] if len(parts) >= 1 else ""
+                    comm_id = parts[1] if len(parts) >= 2 else ""
+
+                    generated_summaries.append({
+                        "content": content,
+                        "level": level,
+                        "community_id": comm_id,
+                        "summary_path": summary_path,
+                    })
+
+                if generated_summaries:
+                    add_community_summaries(collection, generated_summaries)
+                    logger.info(
+                        f"[generate_community_summaries] Vectorized {len(generated_summaries)} summaries"
+                    )
+            except Exception as e:
+                logger.warning(f"[generate_community_summaries] Vector store update failed: {type(e).__name__}: {e}")
+
             elapsed = time.time() - start_time
             logger.info(
                 f"[generate_community_summaries] Completed in {elapsed:.2f}s: "

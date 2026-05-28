@@ -162,6 +162,18 @@ class AnalyzeModuleTool(BaseTool):
             with open(entities_path, 'w', encoding='utf-8') as f:
                 json.dump(entities_data, f, ensure_ascii=False, indent=2)
 
+            try:
+                from .memory_vector_store import init_vector_store, add_notes
+                storage_path = os.path.dirname(memory_dir)
+                collection = init_vector_store(storage_path)
+                add_notes(collection, [{
+                    "content": note_content,
+                    "filepath": filepath,
+                    "filename": filename,
+                }])
+            except Exception as e:
+                logger.warning(f"[analyze_module] Vector store update failed: {type(e).__name__}: {e}")
+
         summary = note_content[:300] if len(note_content) > 300 else note_content
 
         elapsed = time.time() - start_time
