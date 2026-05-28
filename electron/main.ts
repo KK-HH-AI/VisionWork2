@@ -5,60 +5,64 @@ import { spawn, ChildProcess } from 'child_process';
 import crypto from 'crypto';
 import net from 'net';
 
+// ---- 状态变量 ----
 let mainWindow: BrowserWindow | null;
 let pythonProcess: ChildProcess | null;
 let backendPort: number;
 let backendToken: string;
-let isBackendReady = false;//代表后端是否启动成功的标志
-let viteProcess : ChildProcess | null;
+let isBackendReady = false;
+let viteProcess: ChildProcess | null;
 
-/**
- * 查找当前可用的端口号
- * 创建一个临时服务器并监听0端口，系统会自动分配一个可用的端口号
- * @returns 返回一个Promise，解析值为可用的端口号
- */
+// 判断是否已打包为生产环境
+const IS_PACKAGED = app.isPackaged;
+
+// ==============================
+//  工具函数
+// ==============================
+
+/** 查找一个可用的本地回环端口 */
 function findAvailablePort(): Promise<number> {
   return new Promise((resolve) => {
-    // 创建一个新的服务器实例
     const server = net.createServer();
-    // 监听0端口，系统会自动分配一个可用的端口号
-    // '127.0.0.1' 指定本地回环地址
     server.listen(0, '127.0.0.1', () => {
-      // 获取服务器的地址信息
       const addr = server.address();
-      // 提取端口号，处理地址对象可能为null的情况
       const port = typeof addr === 'object' && addr ? addr.port : 0;
-      // 关闭服务器并返回获取到的端口号
       server.close(() => resolve(port));
     });
   });
 }
 
 /**
- * 启动 Python 后端服务
- * 根据端口和令牌启动 main.py 子进程，监听 stdout 判断启动完成
- * @param port - 后端监听端口
- * @param token - 认证令牌
- * @returns 启动成功时 resolve，进程出错或超时则 reject，返回一个promise
+ * 启动 Python 后端 (dev 用 python 命令, production 用打包好的 .exe)
  */
 function startPythonBackend(port: number, token: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    //获得python可执行文件路径
-    const pythonPath = process.env.PYTHON_PATH || 'python';
-    //找到后端主程序的文件路径
-    const scriptPath = path.join(__dirname, '..', 'src', 'backend', 'main.py');
+    let cmd: string;
+    let args: string[];
+    let cwd: string | undefined;
 
-    //启动python后端主程序
-    pythonProcess = spawn(pythonPath, [scriptPath, '--port', String(port), '--token', token], {
+    if (IS_PACKAGED) {
+      // ---------- 生产模式：使用 PyInstaller 打包好的 backend.exe ----------
+      cmd = path.join(process.resourcesPath, 'backend', 'backend.exe');
+      args = ['--port', String(port), '--token', token];
+    } else {
+      // ---------- 开发模式：使用系统的 python 解释器 ----------
+      cmd = process.env.PYTHON_PATH || 'python';
+      const scriptPath = path.join(__dirname, '..', 'src', 'backend', 'main.py');
+      args = [scriptPath, '--port', String(port), '--token', token];
+    }
+
+    console.log(`[Main] Starting backend: ${cmd} ${args.join(' ')}`);
+
+    pythonProcess = spawn(cmd, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      //PYTHONIOENCODING 是 Python 专用的一个环境变量，用来控制 Python 解释器输入输出（stdin/stdout/stderr）的编码。
-      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      cwd,
     });
 
     let backendOutput = '';
 
-    //监听后端输出，判度是否启动成功（成功时执行）
-    pythonProcess.stdout?.on('data', (data: Buffer) => {
+    const onData = (data: Buffer) => {
       const str = data.toString();
       backendOutput += str;
       console.log(`[Backend] ${str.trim()}`);
@@ -66,26 +70,16 @@ function startPythonBackend(port: number, token: string): Promise<void> {
         isBackendReady = true;
         resolve();
       }
-    });
+    };
 
-    //监听到错误或者超时
-    pythonProcess.stderr?.on('data', (data: Buffer) => {
-      const str = data.toString();
-      backendOutput += str;
-      console.error(`[Backend Error] ${str.trim()}`);
-      if (str.includes('Backend starting') || str.includes('Uvicorn running')) {
-        isBackendReady = true;
-        resolve();
-      }
-    });
+    pythonProcess.stdout?.on('data', onData);
+    pythonProcess.stderr?.on('data', onData);
 
-    //无法创建python子进程时
     pythonProcess.on('error', (err: Error) => {
       console.error(`[Backend] Failed to start: ${err.message}`);
       reject(err);
     });
 
-    //监听后端进程是否退出
     pythonProcess.on('exit', (code: number | null) => {
       console.log(`[Backend] Process exited with code ${code}`);
       isBackendReady = false;
@@ -96,8 +90,7 @@ function startPythonBackend(port: number, token: string): Promise<void> {
         mainWindow.webContents.send('backend-exited', { code });
       }
     });
-    
-    //后端进程启动超过30s，任务启动失败
+
     setTimeout(() => {
       if (!isBackendReady) {
         reject(new Error('Backend startup timeout'));
@@ -106,18 +99,14 @@ function startPythonBackend(port: number, token: string): Promise<void> {
   });
 }
 
-/**
- * 开启前端vite服务
- * @returns 前端端口号
- */
+// ==============================
+//  开发模式：启动 Vite 开发服务器
+// ==============================
 async function startViteDevServer(): Promise<number> {
-  //找一个空闲端口号
   const vitePort = await findAvailablePort();
 
-  //获得前端主程序路径
   return new Promise((resolve, reject) => {
     const frontendDir = path.join(__dirname, '..', 'src', 'frontend');
-    //启动前端主程序
     viteProcess = spawn(
       process.platform === 'win32' ? 'npx.cmd' : 'npx',
       ['vite', '--port', String(vitePort), '--strictPort'],
@@ -132,17 +121,13 @@ async function startViteDevServer(): Promise<number> {
     viteProcess.stdout?.on('data', (data: Buffer) => {
       console.log(`[Vite] ${data.toString().trim()}`);
     });
-
     viteProcess.stderr?.on('data', (data: Buffer) => {
       console.error(`[Vite Error] ${data.toString().trim()}`);
     });
-
     viteProcess.on('error', (err: Error) => {
-      console.error(`[Vite] Failed to start: ${err.message}`);
       reject(err);
     });
-
-    viteProcess.on('exit', (code: number | null) => {
+    viteProcess.on('exit', (code) => {
       console.log(`[Vite] Process exited with code ${code}`);
     });
 
@@ -155,9 +140,7 @@ async function startViteDevServer(): Promise<number> {
           console.log(`[Main] Vite is ready on port ${vitePort}`);
           resolve(vitePort);
         }
-      } catch {
-        // 继续等待
-      }
+      } catch { /* 继续等待 */ }
     }, 500);
 
     const timeout = setTimeout(() => {
@@ -167,83 +150,107 @@ async function startViteDevServer(): Promise<number> {
   });
 }
 
-/**
- * 启动electron项目
- * @returns 启动成功时 resolve，进程出错或超时则 reject
- */
+// ==============================
+//  创建窗口 & 启动后端
+// ==============================
 async function createWindow() {
   try {
-    console.log('[Main] Starting Vite dev server...');
-    //启动前端
-    const vitePort = await startViteDevServer();
-    console.log(`[Main] Vite is ready on port ${vitePort}`);
+    if (IS_PACKAGED) {
+      // ==================== 生产模式 ====================
+      // 启动 Python 后端
+      backendPort = await findAvailablePort();
+      backendToken = crypto.randomBytes(16).toString('hex');
+      console.log(`[Main] Starting backend on port ${backendPort}...`);
+      await startPythonBackend(backendPort, backendToken);
+      isBackendReady = true;
+      console.log('[Main] Backend is ready');
+      await new Promise(resolve => setTimeout(resolve, 500));
 
-    //启动后端
-    backendPort = await findAvailablePort();
-    backendToken = crypto.randomBytes(16).toString('hex');
-    console.log(`[Main] Starting backend on port ${backendPort}...`);
-    await startPythonBackend(backendPort, backendToken);
-    isBackendReady = true;
-    console.log('[Main] Backend is ready');
-    await new Promise(resolve => setTimeout(resolve, 500));
+      // 创建窗口，加载打包好的前端静态文件
+      mainWindow = new BrowserWindow({
+        width: 1400,
+        height: 900,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          preload: path.join(__dirname, 'preload.js'),
+          devTools: false,
+        },
+      });
 
-    //创建electron窗口
-    mainWindow = new BrowserWindow({
-      width: 1400,
-      height: 900,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        preload: path.join(__dirname, 'preload.js'),
-        devTools: false,  // 禁用开发者工具
-      }
-    });
+      // 加载 Vite 构建产物 (dist/index.html)
+      const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
+      mainWindow.loadFile(indexPath);
 
-    // 使用动态获取的 Vite 端口，加载前端界面
-    mainWindow.loadURL(`http://localhost:${vitePort}`);
+      mainWindow.on('closed', () => { mainWindow = null; });
 
-    mainWindow.on('closed', () => {
-      mainWindow = null;
-    });
+    } else {
+      // ==================== 开发模式 ====================
+      console.log('[Main] Starting Vite dev server...');
+      const vitePort = await startViteDevServer();
+      console.log(`[Main] Vite is ready on port ${vitePort}`);
+
+      backendPort = await findAvailablePort();
+      backendToken = crypto.randomBytes(16).toString('hex');
+      console.log(`[Main] Starting backend on port ${backendPort}...`);
+      await startPythonBackend(backendPort, backendToken);
+      isBackendReady = true;
+      console.log('[Main] Backend is ready');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      mainWindow = new BrowserWindow({
+        width: 1400,
+        height: 900,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          preload: path.join(__dirname, 'preload.js'),
+          devTools: false,
+        },
+      });
+
+      mainWindow.loadURL(`http://localhost:${vitePort}`);
+      mainWindow.on('closed', () => { mainWindow = null; });
+    }
   } catch (err) {
     console.error(`[Main] Failed to start application: ${(err as Error).message}`);
-    dialog.showErrorBox('启动失败', `无法启动后端服务：${(err as Error).message}\n\n请检查Python环境是否正确安装。`);
+    dialog.showErrorBox(
+      '启动失败',
+      IS_PACKAGED
+        ? `无法启动后端服务：${(err as Error).message}`
+        : `无法启动后端服务：${(err as Error).message}\n\n请检查Python环境是否正确安装。`
+    );
     app.quit();
   }
 }
 
-/**
- * 优雅关闭 Python 后端进程
- * 先发送 SIGTERM，3 秒内未退出则强杀，最后清理状态
- */
+// ==============================
+//  优雅关闭
+// ==============================
 async function shutdownAll() {
-  // ====================== 1. 关闭 Python 后端 ======================
+  // 关闭 Python 后端
   if (pythonProcess) {
     console.log('[Main] Shutting down backend...');
-
     if (pythonProcess.exitCode === null) {
       pythonProcess.kill('SIGTERM');
-
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => {
           console.log('[Main] Backend did not exit gracefully, force killing...');
           pythonProcess!.kill('SIGKILL');
           resolve();
         }, 3000);
-
         pythonProcess!.on('exit', () => {
           clearTimeout(timeout);
           resolve();
         });
       });
     }
-
     pythonProcess = null;
     isBackendReady = false;
     console.log('[Main] Backend shutdown complete');
   }
 
-  // ====================== 2. 关闭 Vite 前端服务 ======================
+  // 关闭 Vite (仅开发模式)
   if (viteProcess) {
     console.log('[Main] Shutting down Vite...');
     if (viteProcess.exitCode === null) {
@@ -264,11 +271,11 @@ async function shutdownAll() {
   }
 }
 
-//以下为Electron的主入口程序（调用层）
-//应用启动就绪后创建窗口
+// ==============================
+//  Electron 生命周期
+// ==============================
 app.whenReady().then(createWindow);
 
-//注册一个处理器，在所有窗口都关闭时触发，关闭后端进程
 app.on('window-all-closed', async () => {
   await shutdownAll();
   if (process.platform !== 'darwin') {
@@ -276,7 +283,6 @@ app.on('window-all-closed', async () => {
   }
 });
 
-//注册一个处理器，在应用即将退出时触发，关闭后端进程
 app.on('before-quit', async (event) => {
   if (pythonProcess && pythonProcess.exitCode === null) {
     event.preventDefault();
@@ -285,33 +291,29 @@ app.on('before-quit', async (event) => {
   }
 });
 
-//注册一个处理器，当用户点击 macOS Dock 图标或应用被重新激活时触发。
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
 });
 
-//注册一个 IPC 接口，当渲染进程（前端）调用 ipcRenderer.invoke('get-backend-config') 时才执行，返回后端配置
+// ==============================
+//  IPC 接口
+// ==============================
 ipcMain.handle('get-backend-config', () => {
-  console.log(`[Main] get-backend-config called: port=${backendPort}, token=${backendToken}, ready=${isBackendReady}`);
   return { port: backendPort, token: backendToken, ready: isBackendReady };
 });
 
-//注册一个 IPC 接口，前端请求选择文件夹时才弹出系统对话，输出文件夹绝对路径
 ipcMain.handle('select-folder', async () => {
-  //弹出系统文件夹选择框
   const result = await dialog.showOpenDialog(mainWindow!, {
-    properties: ['openDirectory']
+    properties: ['openDirectory'],
   });
-
   if (!result.canceled && result.filePaths.length > 0) {
     return result.filePaths[0];
   }
   return null;
 });
 
-//注册一个 IPC 接口，前端请求读取文件时才执行，输出文件内容
 ipcMain.handle('read-file', async (_event, filePath: string) => {
   try {
     if (!fs.existsSync(filePath)) {
@@ -319,10 +321,9 @@ ipcMain.handle('read-file', async (_event, filePath: string) => {
     }
     const stat = fs.statSync(filePath);
     if (stat.size > 5 * 1024 * 1024) {
-      //限制文件最大为 5 MB
       return { success: false, error: '文件过大（超过5MB）' };
     }
-    const content = fs.readFileSync(filePath, 'utf-8');//执行读取文件内容操作，这是node.js的模块，可以操作文件系统
+    const content = fs.readFileSync(filePath, 'utf-8');
     return { success: true, content, size: stat.size };
   } catch (err) {
     return { success: false, error: (err as Error).message };

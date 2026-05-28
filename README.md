@@ -200,6 +200,57 @@ npm run dev
 | 样式 | CSS Variables（深色/浅色主题） |
 | 构建工具 | Vite |
 
+## 打包为桌面安装包
+
+VisionWork2 支持打包为可分发的桌面软件安装包（.exe / .dmg / .AppImage）。
+
+### 前置条件
+
+```bash
+# 1. 确保 Python 后端依赖已安装
+pip install -r requirements.txt
+
+# 2. 确保 Node.js 依赖已安装
+npm install
+```
+
+### 一键构建（Windows）
+
+```bash
+npm run build:win
+```
+
+输出目录：`release/` — 生成 `VisionWork2 Setup x.x.x.exe` NSIS 安装程序。
+
+### 一键构建（macOS）
+
+```bash
+npm run build:mac
+```
+
+输出目录：`release/` — 生成 `.dmg` 磁盘映像。
+
+### 构建流程详解
+
+```
+npm run build:backend    → PyInstaller 将 Python 后端打包为 backend-dist/backend.exe
+npm run build            → Vite 将 React 前端构建为 dist/
+npm run build:electron   → TypeScript 编译 Electron 主进程到 dist-electron/
+electron-builder         → 将以上产物 + Electron 壳打包为安装程序
+```
+
+### 安装包内容
+
+```
+VisionWork2 Setup.exe
+  └── VisionWork2.exe (Electron)
+      ├── dist/           (前端静态文件)
+      ├── dist-electron/  (Electron 主进程)
+      └── resources/backend/backend.exe  (PyInstaller 打包的 Python 后端)
+```
+
+用户安装后双击桌面图标即可启动，无需安装 Python 或 Node.js。
+
 ## 项目结构说明
 
 - WebSocket 通信采用线程安全队列（queue.Queue），子线程推送事件，主异步循环消费发送

@@ -5,3 +5,6 @@ sentence-transformers>=2.2.0
 langgraph>=0.2.0
 langchain>=0.3.0
 langchain-openai>=0.2.0
+
+# 打包分发用（仅在构建安装包时需要）
+pyinstaller>=6.0.0

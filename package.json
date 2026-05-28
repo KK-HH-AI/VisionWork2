@@ -3,12 +3,16 @@
   "version": "1.0.0",
   "description": "VisionWork2 - AI Code Analysis Tool",
   "main": "dist-electron/main.js",
+  "author": "VisionWork2 Team",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "electron:dev": "npm run build:electron && concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "npm run build:electron && vite build && electron-builder"
+    "build:backend": "pyinstaller --clean --distpath backend-dist backend.spec",
+    "build:all": "npm run build:backend && npm run build && npm run build:electron && electron-builder",
+    "build:win": "npm run build:backend && npm run build && npm run build:electron && electron-builder --win",
+    "build:mac": "npm run build:backend && npm run build && npm run build:electron && electron-builder --mac"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -31,8 +35,74 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
     "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
     "typescript": "^6.0.3",
     "vite": "^6.0.7",
     "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.visionwork2.app",
+    "productName": "VisionWork2",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "backend-dist/",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": null
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": null,
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": null,
+      "category": "Development"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "VisionWork2"
+    }
   }
 }
