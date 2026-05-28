@@ -1,6 +1,7 @@
 import json
 import os
 import hashlib
+import tiktoken
 from typing import TypedDict, List, Optional, Any
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
@@ -230,6 +231,174 @@ def _build_canvas_commands_from_tree(tree: dict) -> List[dict]:
 
     commands.append({"cmd": "layout"})
     return commands
+
+
+_COMPRESSED_SUMMARY_PROMPT = """请将以下工具执行结果总结为简短摘要（100-200字），保留以下关键信息：
+- 涉及的文件路径
+- 重要的分析结果和发现
+- 生成的关键数据（如节点数量、关系类型等）
+请直接输出摘要内容，不要包含任何前缀说明。"""
+
+
+def _count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
+    try:
+        encoding = tiktoken.get_encoding(encoding_name)
+        return len(encoding.encode(text))
+    except Exception:
+        return len(text) // 4
+
+
+def _get_encoding_for_model(model_name: str) -> str:
+    if not model_name:
+        return "cl100k_base"
+    try:
+        return tiktoken.encoding_name_for_model(model_name)
+    except Exception:
+        return "cl100k_base"
+
+
+def compress_working_memory(state: AgentState, max_tokens: int = 8000) -> None:
+    messages = state.get("messages", [])
+    if not messages:
+        return
+
+    model_name = state.get("model_name", "")
+    encoding_name = _get_encoding_for_model(model_name)
+
+    total_tokens = 0
+    for msg in messages:
+        content = ""
+        if hasattr(msg, "content"):
+            c = msg.content
+            if isinstance(c, str):
+                content = c
+            elif isinstance(c, list):
+                content = " ".join(
+                    part.get("text", "") if isinstance(part, dict) else str(part)
+                    for part in c
+                )
+            else:
+                content = str(c)
+        total_tokens += _count_tokens(content, encoding_name)
+
+    threshold = int(max_tokens * 0.8)
+    if total_tokens <= threshold:
+        return
+
+    tool_msg_indices = []
+    for i, msg in enumerate(messages):
+        if isinstance(msg, AIMessage):
+            content = ""
+            if hasattr(msg, "content"):
+                c = msg.content
+                if isinstance(c, str):
+                    content = c
+                elif isinstance(c, list):
+                    content = " ".join(
+                        part.get("text", "") if isinstance(part, dict) else str(part)
+                        for part in c
+                    )
+            if "已执行工具" in str(content):
+                tool_msg_indices.append(i)
+
+    min_keep = 5
+    if len(tool_msg_indices) <= min_keep:
+        return
+
+    compress_count = len(tool_msg_indices) - min_keep
+    if compress_count <= 0:
+        return
+
+    indices_to_compress = set(tool_msg_indices[:compress_count])
+
+    compressed_contents = []
+    for idx in sorted(indices_to_compress):
+        msg = messages[idx]
+        content = ""
+        if hasattr(msg, "content"):
+            c = msg.content
+            if isinstance(c, str):
+                content = c
+            elif isinstance(c, list):
+                content = " ".join(
+                    part.get("text", "") if isinstance(part, dict) else str(part)
+                    for part in c
+                )
+            else:
+                content = str(c)
+        compressed_contents.append(content)
+
+    summary = f"已执行 {compress_count} 个工具步骤（含关键文件路径和分析结果摘要），详细内容已压缩。"
+
+    combined_text = "\n---\n".join(compressed_contents[-15:])
+    try:
+        api_url = state.get("api_url", "")
+        api_key = state.get("api_key", "")
+        summary_model = state.get("model_name", "")
+        if api_url and api_key and summary_model and combined_text.strip():
+            llm = ChatOpenAI(
+                base_url=api_url,
+                api_key=api_key,
+                model=summary_model,
+                temperature=0.1,
+                max_tokens=200,
+                streaming=False,
+            )
+            response = llm.invoke([
+                SystemMessage(content=_COMPRESSED_SUMMARY_PROMPT),
+                HumanMessage(content=combined_text),
+            ])
+            llm_summary = ""
+            if hasattr(response, "content"):
+                c = response.content
+                if isinstance(c, str):
+                    llm_summary = c.strip()
+                elif isinstance(c, list):
+                    llm_summary = " ".join(
+                        part.get("text", "") if isinstance(part, dict) else str(part)
+                        for part in c
+                    )
+            if llm_summary and len(llm_summary) > 10:
+                summary = llm_summary
+    except Exception as e:
+        print(f"[graph.py] compress_working_memory: LLM摘要生成失败，使用默认摘要: {e}")
+
+    compressed_msg = AIMessage(
+        content=f"（已压缩 {compress_count} 条工具结果）\n摘要: {summary}"
+    )
+    compressed_msg.additional_kwargs = {"subtype": "compressed"}
+
+    new_messages = []
+    summary_inserted = False
+    for i, msg in enumerate(messages):
+        if i in indices_to_compress:
+            if not summary_inserted:
+                new_messages.append(compressed_msg)
+                summary_inserted = True
+        else:
+            new_messages.append(msg)
+
+    state["messages"] = new_messages
+
+    after_tokens = 0
+    for msg in new_messages:
+        content = ""
+        if hasattr(msg, "content"):
+            c = msg.content
+            if isinstance(c, str):
+                content = c
+            elif isinstance(c, list):
+                content = " ".join(
+                    part.get("text", "") if isinstance(part, dict) else str(part)
+                    for part in c
+                )
+            else:
+                content = str(c)
+        after_tokens += _count_tokens(content, encoding_name)
+
+    print(f"[graph.py] compress_working_memory: 压缩前 {total_tokens} tokens, "
+          f"压缩 {compress_count} 条消息, 压缩后 {after_tokens} tokens")
+
 
 # ----------------------------------------------------------------------
 # 图节点函数
@@ -588,6 +757,8 @@ def execute_node(state: AgentState) -> AgentState:
             )
             state["messages"] = messages
 
+            compress_working_memory(state, max_tokens=8000)
+
         except Exception as e:
             print(f"[graph.py] execute_node: step {i+1}/{len(plan)} FAILED, action={action}, error={e}")
             _push_event(event_queue, {
@@ -625,6 +796,8 @@ def observe_node(state: AgentState) -> AgentState:
             "message": "分析已自动完成。如需进一步分析，请发送新的指令。",
         })
         return state
+
+    compress_working_memory(state, max_tokens=8000)
 
     if current_step >= len(plan):
         if not plan:
