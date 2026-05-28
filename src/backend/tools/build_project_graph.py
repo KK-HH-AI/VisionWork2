@@ -43,6 +43,18 @@ class BuildProjectGraphTool(BaseTool):
                 "type": "number",
                 "description": "社区检测分辨率参数，默认1.0（值越小社区越大）",
             },
+            "api_url": {
+                "type": "string",
+                "description": "LLM API地址（提供后自动生成社区摘要）",
+            },
+            "api_key": {
+                "type": "string",
+                "description": "LLM API密钥",
+            },
+            "model_name": {
+                "type": "string",
+                "description": "LLM模型名称",
+            },
         },
         "required": ["project_path"],
     }
@@ -171,6 +183,30 @@ class BuildProjectGraphTool(BaseTool):
                 with open(community_tree_path, "w", encoding="utf-8") as f:
                     json.dump(community_tree, f, ensure_ascii=False, indent=2)
 
+            api_url = kwargs.get("api_url", "")
+            api_key = kwargs.get("api_key", "")
+            model_name = kwargs.get("model_name", "qwen-plus")
+            summary_count = 0
+
+            if api_url and api_key:
+                try:
+                    from .generate_community_summaries import GenerateCommunitySummariesTool
+                    summary_tool = GenerateCommunitySummariesTool()
+                    summary_result = await summary_tool.execute(
+                        project_path=project_path,
+                        workspace_root=workspace_root,
+                        api_url=api_url,
+                        api_key=api_key,
+                        model_name=model_name,
+                    )
+                    summary_data = json.loads(summary_result)
+                    summary_count = summary_data.get("summary_count", 0)
+                    logger.info(
+                        f"[build_project_graph] Auto-generated {summary_count} community summaries"
+                    )
+                except Exception as e:
+                    logger.warning(f"[build_project_graph] Community summary generation failed: {e}")
+
             elapsed = time.time() - start_time
             logger.info(
                 f"[build_project_graph] Completed in {elapsed:.2f}s: "
@@ -188,6 +224,7 @@ class BuildProjectGraphTool(BaseTool):
                     f"C{i}": len(set(communities.get(f"C{i}", {}).values()))
                     for i in range(max_layers)
                 },
+                "summary_count": summary_count,
                 "elapsed_seconds": round(elapsed, 2),
             }, ensure_ascii=False)
 
