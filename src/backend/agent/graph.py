@@ -463,12 +463,25 @@ def plan_node(state: AgentState) -> AgentState:
             streaming=False,  # 不流式输出JSON计划，避免前端显示原始JSON
         )
 
-        response = llm.invoke([
-            SystemMessage(content=system_prompt),
+        # ---- 组装提示词：系统提示词 → 用户提问 → 工作记忆 ----
+        compress_working_memory(state, max_tokens=8000)
+
+        messages_for_llm = [SystemMessage(content=system_prompt)]
+
+        # 用户提示词区域：仅最新提问
+        messages_for_llm.append(
             HumanMessage(content=f"用户指令: {user_message}\n\n"
                                  f"项目路径: {state.get('project_path', '')}\n\n"
-                                 f"请制定执行计划。"),
-        ])
+                                 f"请制定执行计划。")
+        )
+
+        # 工作记忆区域：追加工具执行结果（AIMessage）
+        working_messages = state.get("messages", [])
+        for msg in working_messages:
+            if isinstance(msg, AIMessage) and msg.content:
+                messages_for_llm.append(msg)
+
+        response = llm.invoke(messages_for_llm)
         full_content = response.content if hasattr(response, 'content') else str(response)
 
         plan_data = _extract_json(full_content)
@@ -848,10 +861,21 @@ def observe_node(state: AgentState) -> AgentState:
                 total_steps=len(plan),
             )
 
-            response = llm.invoke([
-                SystemMessage(content=observe_prompt),
-                HumanMessage(content="请评估当前进展并决定下一步。"),
-            ])
+            # ---- 组装提示词：系统提示词 → 用户提问 → 工作记忆 ----
+            messages_for_llm = [SystemMessage(content=observe_prompt)]
+
+            # 用户提示词区域
+            messages_for_llm.append(
+                HumanMessage(content="请评估当前进展并决定下一步。")
+            )
+
+            # 工作记忆区域：追加工具执行结果（AIMessage）
+            working_messages = state.get("messages", [])
+            for msg in working_messages:
+                if isinstance(msg, AIMessage) and msg.content:
+                    messages_for_llm.append(msg)
+
+            response = llm.invoke(messages_for_llm)
             full_content = response.content if hasattr(response, 'content') else str(response)
 
             observe_data = _extract_json(full_content)
