@@ -14,3 +14,6 @@ tree-sitter-typescript>=0.23.0
 
 # 打包分发用（仅在构建安装包时需要）
 pyinstaller>=6.0.0
+
+# 知识图谱与社区检测
+python-louvain>=0.16
