@@ -155,6 +155,7 @@ class GenerateCommunitySummariesTool(BaseTool):
                         model=model_name,
                         temperature=0.3,
                         max_tokens=800,
+                        request_timeout=120,
                     )
                 except Exception as e:
                     logger.warning(f"[generate_community_summaries] LLM init failed: {e}")

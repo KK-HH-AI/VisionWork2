@@ -171,7 +171,7 @@ class SearchMemoryTool(BaseTool):
             },
             "search_type": {
                 "type": "string",
-                "description": "搜索类型：note（仅笔记）、community（仅社区摘要）、all（全部），默认all",
+                "description": "搜索类型：note（仅笔记）、community（仅社区摘要）、all（全部）、cascade（级联：逐层社群→笔记有序检索），默认all",
             },
             "memory_dir": {
                 "type": "string",
@@ -189,6 +189,9 @@ class SearchMemoryTool(BaseTool):
 
         if not query:
             return json.dumps({"error": "query is required"}, ensure_ascii=False)
+
+        if search_type == "cascade":
+            return await self._execute_cascade(query, k, memory_dir)
 
         used_vector = False
         results = []
@@ -229,4 +232,77 @@ class SearchMemoryTool(BaseTool):
             "total_found": len(results),
             "results": results,
             "search_method": "vector" if used_vector else "keyword",
+        }, ensure_ascii=False)
+
+    async def _execute_cascade(self, query: str, k: int, memory_dir: str) -> str:
+        community_results = _try_vector_search(memory_dir, query, k * 2, "community")
+
+        level_groups = {"C0": [], "C1": [], "C2": [], "C3": []}
+        for cr in community_results:
+            level = cr.get("level", "")
+            if level in level_groups:
+                level_groups[level].append(cr)
+
+        cascade_path = []
+        for level_key in ["C0", "C1", "C2", "C3"]:
+            items = sorted(level_groups[level_key], key=lambda r: -r.get("score", 0))
+            if items:
+                top = items[0]
+                cascade_path.append({
+                    "type": "community",
+                    "level": top.get("level", ""),
+                    "community_id": top.get("community_id", ""),
+                    "node_id": f"community_{top.get('level', '')}_{top.get('community_id', '')}",
+                    "summary_path": top.get("summary_path", ""),
+                    "score": top.get("score", 0),
+                    "content_preview": top.get("content_preview", ""),
+                })
+
+        note_results = _try_vector_search(memory_dir, query, k, "note")
+        if not note_results:
+            note_results = _keyword_search(memory_dir, query, k)
+
+        for nr in note_results[:k]:
+            cascade_path.append({
+                "type": "note",
+                "node_id": nr.get("node_id", ""),
+                "filename": nr.get("filename", ""),
+                "filepath": nr.get("filepath", ""),
+                "score": nr.get("score", 0),
+                "content_preview": nr.get("content_preview", ""),
+            })
+
+        cascade_node_ids = [item["node_id"] for item in cascade_path if item.get("node_id")]
+
+        all_results = []
+        for item in cascade_path:
+            r = {
+                "source_type": item["type"],
+                "score": item.get("score", 0),
+            }
+            if item["type"] == "community":
+                r["level"] = item.get("level", "")
+                r["community_id"] = item.get("community_id", "")
+                r["summary_path"] = item.get("summary_path", "")
+                r["node_id"] = item.get("node_id", "")
+            else:
+                r["node_id"] = item.get("node_id", "")
+                r["filename"] = item.get("filename", "")
+                r["filepath"] = item.get("filepath", "")
+            r["content_preview"] = item.get("content_preview", "")
+            all_results.append(r)
+
+        logger.info(
+            f"[search_memory] Cascade search: {len(cascade_node_ids)} steps "
+            f"(communities={sum(1 for item in cascade_path if item['type'] == 'community')}, "
+            f"notes={sum(1 for item in cascade_path if item['type'] == 'note')}) "
+            f"for query '{query[:50]}...'"
+        )
+
+        return json.dumps({
+            "query": query,
+            "total_found": len(all_results),
+            "results": all_results,
+            "cascade_path": cascade_node_ids,
+            "search_method": "cascade",
         }, ensure_ascii=False)

@@ -10,6 +10,10 @@ export interface GraphNode {
   label: string;
   group: string;
   path?: string;
+  level?: string;
+  community_id?: string;
+  has_summary?: boolean;
+  source_file?: string;
   x?: number;
   y?: number;
   fx?: number | null;
@@ -19,6 +23,8 @@ export interface GraphNode {
 export interface GraphEdge {
   source: string | GraphNode;
   target: string | GraphNode;
+  label?: string;
+  type?: string;
 }
 
 export interface MemoryNote {
