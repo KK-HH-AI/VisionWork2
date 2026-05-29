@@ -30,3 +30,24 @@ export const NODE_TYPE_COLORS: Record<string, string> = {
   'service': '#4CAF50',
   'component': '#A855F7',
 };
+
+export const COMMUNITY_LEVEL_COLORS: Record<string, string> = {
+  'C0': '#9b59b6',
+  'C1': '#e74c3c',
+  'C2': '#f39c12',
+  'C3': '#1abc9c',
+};
+
+export const COMMUNITY_LEVEL_RADIUS: Record<string, number> = {
+  'C0': 18,
+  'C1': 15,
+  'C2': 13,
+  'C3': 11,
+};
+
+export const COMMUNITY_LEVEL_LABELS: Record<string, string> = {
+  'C0': '项目全景',
+  'C1': '核心领域',
+  'C2': '功能模块',
+  'C3': '相关话题',
+};

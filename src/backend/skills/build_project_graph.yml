@@ -1,0 +1,31 @@
+name: build_project_graph
+description: 读取项目中所有_entities.json文件，构建全局知识图谱，进行层次社区检测，生成社区LLM摘要，并将图谱和社区归属保存到workspace/<项目>/graph/下。
+parameters:
+  project_path:
+    type: string
+    description: 项目根目录路径
+    required: true
+  workspace_root:
+    type: string
+    description: workspace根目录路径
+    required: false
+  max_layers:
+    type: integer
+    description: 最大社区层次深度，默认4（C0-C3）
+    required: false
+  resolution:
+    type: number
+    description: 社区检测分辨率参数，默认1.0（值越小社区越大）
+    required: false
+  api_url:
+    type: string
+    description: LLM API地址（提供后自动生成社区摘要）
+    required: false
+  api_key:
+    type: string
+    description: LLM API密钥
+    required: false
+  model_name:
+    type: string
+    description: LLM模型名称
+    required: false

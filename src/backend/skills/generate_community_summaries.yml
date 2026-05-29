@@ -1,0 +1,23 @@
+name: generate_community_summaries
+description: 对每个检测到的社区调用LLM生成自然语言描述摘要，保存为community_<level>_<id>.md，并更新communities.json包含summary_path字段。
+parameters:
+  project_path:
+    type: string
+    description: 项目根目录路径
+    required: true
+  workspace_root:
+    type: string
+    description: workspace根目录路径
+    required: false
+  api_url:
+    type: string
+    description: LLM API地址
+    required: false
+  api_key:
+    type: string
+    description: LLM API密钥
+    required: false
+  model_name:
+    type: string
+    description: LLM模型名称
+    required: false

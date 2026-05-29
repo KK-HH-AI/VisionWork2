@@ -1,11 +1,15 @@
 name: generate_canvas
-description: 在所有文件分析完成后，基于收集到的分析笔记，一次性批量生成完整的流程图（节点+边+布局）。效率远高于逐个创建节点。
+description: 基于社区摘要或分析笔记，一次性批量生成完整的流程图（节点+边+布局）。优先使用向量检索获取最相关的社区摘要来生成更精准的流程图。
 parameters:
   notes_summary:
     type: string
-    description: 所有已分析文件的笔记摘要，包含各文件的关键信息和实体
-    required: true
+    description: （可选，向后兼容）所有已分析文件的笔记摘要。如果提供则使用原逻辑；如果不提供则通过向量检索获取社区摘要。
+    required: false
   user_intent:
     type: string
-    description: 用户的原始意图/指令，决定流程图的结构和重点
+    description: 用户的原始意图/指令，决定流程图的结构和重点方向
     required: true
+  community_level:
+    type: string
+    description: 社区摘要层次：auto（自动选择）/ C0（全局） / C1 / C2 / C3（模块级）。默认为 auto。
+    required: false

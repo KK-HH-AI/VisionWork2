@@ -1327,6 +1327,15 @@ body {
   border-bottom: none;
 }
 
+.memory-retrieval-item.community-step {
+  color: #9b59b6;
+}
+
+.memory-retrieval-item.community-step .memory-retrieval-index {
+  background: rgba(155, 89, 182, 0.15);
+  color: #9b59b6;
+}
+
 .memory-retrieval-index {
   display: flex;
   align-items: center;

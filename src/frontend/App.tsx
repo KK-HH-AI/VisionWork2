@@ -424,6 +424,7 @@ export default function App() {
             source: e.source,
             target: e.target,
             label: e.label || '',
+            style: e.style || {},
           }));
         }
 

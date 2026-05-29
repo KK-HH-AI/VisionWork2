@@ -17,6 +17,8 @@ from .search_memory import SearchMemoryTool
 from .final_answer import FinalAnswerTool
 from .canvas_read import CanvasReadTool
 from .generate_canvas import GenerateCanvasTool
+from .build_project_graph import BuildProjectGraphTool
+from .generate_community_summaries import GenerateCommunitySummariesTool
 
 
 class ToolRegistry:
@@ -88,6 +90,8 @@ class ToolRegistry:
             FinalAnswerTool,
             CanvasReadTool,
             GenerateCanvasTool,
+            BuildProjectGraphTool,
+            GenerateCommunitySummariesTool,
         ]
         for tool_cls in tool_classes:
             tool_instance = tool_cls()            # 创建工具实例

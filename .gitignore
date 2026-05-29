@@ -11,6 +11,7 @@ venv/
 .vite/
 workspace/
 chroma_db/
+vector_db/
 .cache/
 models--*/
 skills_config.json

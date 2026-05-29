@@ -366,26 +366,31 @@ const ReactFlowCanvas = forwardRef<ReactFlowCanvasHandle, ReactFlowCanvasProps>(
     }
   }, [setNodes, setEdges, edgeColor, edgeMarkerColor, labelColor, labelBgColor]);
 
-  const enqueueCommand = useCallback((command: CanvasCommand) => {
-    commandQueueRef.current.push(command);
-    if (!processingRef.current) {
-      processQueue();
-    }
-  }, []);
+  const processCommandRef = useRef(processCommand);
+  processCommandRef.current = processCommand;
 
   const processQueue = useCallback(async () => {
     processingRef.current = true;
     while (commandQueueRef.current.length > 0) {
       const command = commandQueueRef.current.shift();
       if (command) {
-        await processCommand(command);
+        await processCommandRef.current(command);
       }
     }
     processingRef.current = false;
-  }, [processCommand]);
+  }, []);
+
+  const enqueueCommand = useCallback((command: CanvasCommand) => {
+    commandQueueRef.current.push(command);
+    if (!processingRef.current) {
+      processQueue();
+    }
+  }, [processQueue]);
 
   useEffect(() => {
-    (window as unknown as Record<string, unknown>).__enqueueCanvasCommand = enqueueCommand;
+    (window as unknown as Record<string, unknown>).__enqueueCanvasCommand = (cmd: unknown) => {
+      enqueueCommand(cmd as CanvasCommand);
+    };
     return () => {
       delete (window as unknown as Record<string, unknown>).__enqueueCanvasCommand;
     };
